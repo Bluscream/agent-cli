@@ -80,11 +80,84 @@ func (o *options) flexCol(colNum, width int) table.ColumnConfig {
 	}
 }
 
-// flexColConfig returns a ColumnConfig for a "flexible" (wrappable) column —
+// FlexColSpec defines a flexible column with its column number (1-based),
+// minimum width, and relative ratio of available space.
+type FlexColSpec struct {
+	Number   int
+	MinWidth int
+	Ratio    int
+}
+
+// distributeFlexCols computes ColumnConfigs for a set of flexible columns,
+// splitting the available space (terminal width minus fixedCost) according to their ratios.
+// If terminal width is unknown or small, it falls back to MinWidth.
+func (o *options) distributeFlexCols(w io.Writer, fixedCost int, specs ...FlexColSpec) []table.ColumnConfig {
+	if len(specs) == 0 {
+		return nil
+	}
+	totalRatio := 0
+	totalMin := 0
+	for _, s := range specs {
+		r := s.Ratio
+		if r <= 0 {
+			r = 1
+		}
+		totalRatio += r
+		minW := s.MinWidth
+		if minW <= 0 {
+			minW = 10
+		}
+		totalMin += minW
+	}
+
+	cols := termWidth(w)
+	available := 0
+	if cols > 0 {
+		available = cols - fixedCost
+	}
+
+	configs := make([]table.ColumnConfig, len(specs))
+	if available <= totalMin {
+		for i, s := range specs {
+			minW := s.MinWidth
+			if minW <= 0 {
+				minW = 10
+			}
+			configs[i] = o.flexCol(s.Number, minW)
+		}
+		return configs
+	}
+
+	remaining := available
+	for i, s := range specs {
+		if i == len(specs)-1 {
+			configs[i] = o.flexCol(s.Number, remaining)
+			break
+		}
+		r := s.Ratio
+		if r <= 0 {
+			r = 1
+		}
+		wCol := (available * r) / totalRatio
+		minW := s.MinWidth
+		if minW <= 0 {
+			minW = 10
+		}
+		if wCol < minW {
+			wCol = minW
+		}
+		remaining -= wCol
+		configs[i] = o.flexCol(s.Number, wCol)
+	}
+
+	return configs
+}
+
+// flexColConfig returns a ColumnConfig for a single "flexible" (wrappable) column —
 // one whose content (titles, paths, descriptions) should word-wrap rather
 // than cause the table to overflow.
 func (o *options) flexColConfig(w io.Writer, colNum, fixedCost int) table.ColumnConfig {
-	const minWidth = 20
+	const minWidth = 10
 	cols := termWidth(w)
 	available := 80
 	if cols > 0 {

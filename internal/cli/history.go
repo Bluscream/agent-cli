@@ -117,22 +117,10 @@ func historyCommand(o *options) *cobra.Command {
 			// Col 6 (Artifacts): ~11, Col 7 (Total Size): ~12, Col 8 (Created): ~18,
 			// Col 9 (Last Mod): ~18, Borders (10 vertical pipes): 10, Cell padding for cols 3 & 4: 4.
 			// Total base overhead: 106
-			const baseOverhead = 106
-			titleWidth, wsWidth := 30, 30
-			if cols := termWidth(out); cols > 0 {
-				rem := cols - baseOverhead
-				if rem >= 20 {
-					titleWidth = (rem * 6) / 10
-					wsWidth = rem - titleWidth
-				} else {
-					titleWidth = 10
-					wsWidth = 10
-				}
-			}
-			t.SetColumnConfigs([]table.ColumnConfig{
-				o.flexCol(3, titleWidth),
-				o.flexCol(4, wsWidth),
-			})
+			t.SetColumnConfigs(o.distributeFlexCols(out, 106,
+				FlexColSpec{Number: 3, MinWidth: 10, Ratio: 6}, // Title
+				FlexColSpec{Number: 4, MinWidth: 10, Ratio: 4}, // Workspace
+			))
 
 			for _, c := range allConvos {
 				wsDisplay := strings.TrimPrefix(c.WorkspaceDir, "file://")

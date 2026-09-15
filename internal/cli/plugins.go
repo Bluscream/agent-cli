@@ -197,11 +197,14 @@ func listPluginsCmd(o *options, targetProvider string, cmd *cobra.Command) error
 	out := cmd.OutOrStdout()
 	t := o.newTable(out)
 	t.AppendHeader(table.Row{"Provider", "Plugin Name", "Type", "Status", "Path", "Description"})
-	// Fixed cols: provider (~12) + name (~20) + type (~18) + status (~10) + borders (~18) = ~78.
-	t.SetColumnConfigs([]table.ColumnConfig{
-		o.flexColConfig(out, 5, 78+30), // Path
-		o.flexColConfig(out, 6, 78+30), // Description
-	})
+	// Fixed columns overhead: Provider (~13), Type (~21), Status (~11), 7 borders (7),
+	// plus 2-space padding for the 3 flexible columns (6).
+	// Total fixed overhead: 58.
+	t.SetColumnConfigs(o.distributeFlexCols(out, 58,
+		FlexColSpec{Number: 2, MinWidth: 15, Ratio: 2}, // Plugin Name
+		FlexColSpec{Number: 5, MinWidth: 20, Ratio: 3}, // Path
+		FlexColSpec{Number: 6, MinWidth: 20, Ratio: 4}, // Description
+	))
 
 	for _, p := range allPlugins {
 		t.AppendRow(table.Row{

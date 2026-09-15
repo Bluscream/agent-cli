@@ -152,12 +152,12 @@ func memoryCommand(o *options) *cobra.Command {
 			out := cmd.OutOrStdout()
 			t := o.newTable(out)
 			t.AppendHeader(table.Row{"Provider", "ID", "Title", "Preview", "Updated"})
-			// Fixed cols: provider (~8) + short-id (8) + date (~16) + chrome (~14) = ~46.
-			// Title (col 3) and Preview (col 4) share remaining space.
-			t.SetColumnConfigs([]table.ColumnConfig{
-				o.flexColConfig(out, 3, 46+30),
-				o.flexColConfig(out, 4, 46+30),
-			})
+			// Fixed cols: provider (~13) + short-id (10) + date (~18) + borders & padding (~10) = ~51.
+			// Title (col 3) and Preview (col 4) share remaining space (40% / 60%).
+			t.SetColumnConfigs(o.distributeFlexCols(out, 51,
+				FlexColSpec{Number: 3, MinWidth: 15, Ratio: 4}, // Title
+				FlexColSpec{Number: 4, MinWidth: 20, Ratio: 6}, // Preview
+			))
 
 			for _, m := range allItems {
 				preview := strings.ReplaceAll(m.Content, "\n", " ")
