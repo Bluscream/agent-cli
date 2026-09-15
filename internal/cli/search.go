@@ -83,7 +83,7 @@ Examples:
 			))
 
 			for _, r := range results {
-				whoStr := r.Author
+				var whoStr string
 				switch strings.ToLower(r.Author) {
 				case "user":
 					whoStr = bold.Sprint("USER")
