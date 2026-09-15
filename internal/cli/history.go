@@ -110,14 +110,14 @@ func historyCommand(o *options) *cobra.Command {
 
 			out := cmd.OutOrStdout()
 			t := o.newTable(out)
-			t.AppendHeader(table.Row{"Provider", "ID", "Title", "Workspace", "Messages", "Artifacts", "Total Size", "Created", "Last Modified"})
+			t.AppendHeader(table.Row{"Provider", "ID", "Title", "Workspace", "MSGS", "Artifacts", "Total Size", "Created", "MODIFIED"})
 
 			// Base overhead for fixed columns and borders:
-			// Col 1 (Provider): ~13, Col 2 (ID): ~10, Col 5 (Messages): ~10,
+			// Col 1 (Provider): ~13, Col 2 (ID): ~10, Col 5 (MSGS): ~6,
 			// Col 6 (Artifacts): ~11, Col 7 (Total Size): ~12, Col 8 (Created): ~18,
-			// Col 9 (Last Mod): ~18, Borders (10 vertical pipes): 10, Cell padding for cols 3 & 4: 4.
-			// Total base overhead: 106
-			t.SetColumnConfigs(o.distributeFlexCols(out, 106,
+			// Col 9 (MODIFIED): ~18, Borders (10 vertical pipes): 10, Cell padding for cols 3 & 4: 4.
+			// Total base overhead: 102
+			t.SetColumnConfigs(o.distributeFlexCols(out, 102,
 				FlexColSpec{Number: 3, MinWidth: 10, Ratio: 6}, // Title
 				FlexColSpec{Number: 4, MinWidth: 10, Ratio: 4}, // Workspace
 			))
