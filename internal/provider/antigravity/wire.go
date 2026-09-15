@@ -67,7 +67,7 @@ func parseMsg(data []byte) []wireField {
 					break
 				}
 			}
-			if i+int(length) > len(data) {
+			if length > uint64(len(data)-i) {
 				break
 			}
 			sub := data[i : i+int(length)]
@@ -100,7 +100,7 @@ func encodeVarint(val uint64) []byte {
 }
 
 func encodeFieldVarint(fn int, val uint64) []byte {
-	tag := (fn << 3) | 0
+	tag := fn << 3
 	return append(encodeVarint(uint64(tag)), encodeVarint(val)...)
 }
 

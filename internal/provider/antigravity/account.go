@@ -10,6 +10,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"agentcli.local/ai/internal/fsutil"
 )
 
 var saveKeys = []string{
@@ -79,11 +81,11 @@ func ListProfiles() ([]ProfileInfo, error) {
 }
 
 func SaveProfile(profileName string) error {
-	if profileName == "" {
-		return fmt.Errorf("profile name is required")
+	if err := fsutil.ValidateName(profileName); err != nil {
+		return err
 	}
 	dir := ProfilesDir()
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
 	}
 
@@ -117,7 +119,12 @@ func SaveProfile(profileName string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.WriteFile(profileJSONPath, data, 0644); err != nil {
+	if _, err := os.Stat(profileJSONPath); err == nil {
+		if err := os.Chmod(profileJSONPath, 0600); err != nil {
+			return err
+		}
+	}
+	if err := os.WriteFile(profileJSONPath, data, 0600); err != nil {
 		return err
 	}
 
@@ -146,6 +153,9 @@ Terminal=false
 }
 
 func SwitchProfile(profileName string) error {
+	if err := fsutil.ValidateName(profileName); err != nil {
+		return err
+	}
 	dir := ProfilesDir()
 	profileJSONPath := filepath.Join(dir, profileName+".json")
 	data, err := os.ReadFile(profileJSONPath)

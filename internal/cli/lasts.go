@@ -62,6 +62,9 @@ Examples:
 			}
 
 			if len(allConvos) == 0 {
+				if o.isJSON() {
+					return o.printJSON(cmd.OutOrStdout(), []any{})
+				}
 				fmt.Fprintln(cmd.OutOrStdout(), "No conversations found.")
 				return nil
 			}

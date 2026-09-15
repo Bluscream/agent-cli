@@ -30,13 +30,17 @@ The active / currently-selected model is highlighted with a ★ marker.`,
 
 func runModels(o *options, cmd *cobra.Command, showDescriptions bool) error {
 	providers := provider.All()
+	if o.provider != "" {
+		p, err := provider.Get(o.provider)
+		if err != nil {
+			return err
+		}
+		providers = []provider.Provider{p}
+	}
 
 	var all []provider.ModelInfo
 	var errs []string
 	for _, p := range providers {
-		if o.provider != "" && p.Name() != o.provider {
-			continue
-		}
 		mods, err := p.GetModels()
 		if err != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", p.Name(), err))

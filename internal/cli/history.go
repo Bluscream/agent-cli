@@ -40,6 +40,11 @@ func historyCommand(o *options) *cobra.Command {
 				Workspace: targetWorkspace,
 			}
 
+			if targetWorkspace != "" {
+				histOpts.Limit = 0
+				histOpts.Last = false
+			}
+
 			var provList []provider.Provider
 			filterProv := targetProvider
 			if filterProv == "" {

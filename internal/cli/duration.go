@@ -12,7 +12,13 @@ func ParseSinceDuration(s string) (time.Time, error) {
 	if s == "" {
 		return time.Time{}, nil
 	}
-	clean := strings.ToLower(strings.TrimSpace(s))
+	raw := strings.TrimSpace(s)
+	for _, layout := range []string{time.RFC3339, "2006-01-02"} {
+		if t, err := time.Parse(layout, raw); err == nil {
+			return t, nil
+		}
+	}
+	clean := strings.ToLower(raw)
 
 	// Handle natural phrases
 	clean = strings.ReplaceAll(clean, "weeks", "w")
@@ -21,10 +27,10 @@ func ParseSinceDuration(s string) (time.Time, error) {
 	clean = strings.ReplaceAll(clean, "day", "d")
 	clean = strings.ReplaceAll(clean, "hours", "h")
 	clean = strings.ReplaceAll(clean, "hour", "h")
-	clean = strings.ReplaceAll(clean, "mins", "m")
-	clean = strings.ReplaceAll(clean, "min", "m")
 	clean = strings.ReplaceAll(clean, "minutes", "m")
 	clean = strings.ReplaceAll(clean, "minute", "m")
+	clean = strings.ReplaceAll(clean, "mins", "m")
+	clean = strings.ReplaceAll(clean, "min", "m")
 	clean = strings.ReplaceAll(clean, " ", "")
 
 	now := time.Now()
@@ -51,14 +57,6 @@ func ParseSinceDuration(s string) (time.Time, error) {
 	dur, err := time.ParseDuration(clean)
 	if err == nil {
 		return now.Add(-dur), nil
-	}
-
-	// Try RFC3339 or ISO8601 absolute date
-	if t, err := time.Parse("2006-01-02", clean); err == nil {
-		return t, nil
-	}
-	if t, err := time.Parse(time.RFC3339, clean); err == nil {
-		return t, nil
 	}
 
 	return time.Time{}, fmt.Errorf("unknown duration format %q (examples: '2w', '1d', '3h', '30m')", s)

@@ -42,6 +42,19 @@ Example:
 				if err != nil {
 					return err
 				}
+			} else if targetID != "" {
+				for _, candidate := range provider.All() {
+					detail, lookupErr := candidate.GetConversation(targetID)
+					if lookupErr == nil && detail != nil {
+						if p != nil {
+							return fmt.Errorf("ambiguous conversation ID %q; specify --provider", targetID)
+						}
+						p = candidate
+					}
+				}
+				if p == nil {
+					return fmt.Errorf("conversation not found: %s", targetID)
+				}
 			} else {
 				// Pick provider with the most recent activity
 				var mostRecent provider.Provider

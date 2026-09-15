@@ -39,6 +39,20 @@ Antigravity profiles can be switched using 'ai account switch <name>'.`,
 		Short: "Capture current active session tokens and create/update desktop shortcut",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			selected := targetProvider
+			if selected == "" {
+				selected = o.provider
+			}
+			if selected != "" {
+				p, err := provider.Get(selected)
+				if err != nil {
+					return err
+				}
+				if p.Name() != "antigravity" {
+					return fmt.Errorf("account mutation is only supported for antigravity")
+				}
+			}
+
 			profileName := args[0]
 			if err := antigravity.SaveProfile(profileName); err != nil {
 				return err
@@ -53,6 +67,20 @@ Antigravity profiles can be switched using 'ai account switch <name>'.`,
 		Short: "Switch to a saved profile and restart the agent",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			selected := targetProvider
+			if selected == "" {
+				selected = o.provider
+			}
+			if selected != "" {
+				p, err := provider.Get(selected)
+				if err != nil {
+					return err
+				}
+				if p.Name() != "antigravity" {
+					return fmt.Errorf("account mutation is only supported for antigravity")
+				}
+			}
+
 			profileName := args[0]
 			fmt.Fprintf(cmd.OutOrStdout(), "[*] Switching to profile %q...\n", profileName)
 			if err := antigravity.SwitchProfile(profileName); err != nil {
@@ -67,6 +95,20 @@ Antigravity profiles can be switched using 'ai account switch <name>'.`,
 		Use:   "fresh",
 		Short: "Clear active session keys from DB and launch a clean, unauthenticated session",
 		RunE: func(cmd *cobra.Command, args []string) error {
+			selected := targetProvider
+			if selected == "" {
+				selected = o.provider
+			}
+			if selected != "" {
+				p, err := provider.Get(selected)
+				if err != nil {
+					return err
+				}
+				if p.Name() != "antigravity" {
+					return fmt.Errorf("account mutation is only supported for antigravity")
+				}
+			}
+
 			fmt.Fprintln(cmd.OutOrStdout(), "[*] Clearing session keys and launching fresh instance...")
 			if err := antigravity.FreshSession(); err != nil {
 				return err

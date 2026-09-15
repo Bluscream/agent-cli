@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"encoding/base64"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -50,12 +49,17 @@ func Recover(dryRun bool, cleanGhosts bool) (*RecoveryReport, error) {
 	originalEntriesMap := make(map[string][]byte)
 	if rawB64 != "" {
 		rawBytes, err := base64.StdEncoding.DecodeString(rawB64)
-		if err == nil {
-			parsed, _ := extractMapEntries(rawBytes)
-			for k, v := range parsed {
-				originalEntriesMap[k] = v
-			}
+		if err != nil {
+			return nil, fmt.Errorf("invalid trajectory index: %w", err)
 		}
+		parsed, err := extractMapEntries(rawBytes)
+		if err != nil {
+			return nil, fmt.Errorf("invalid trajectory index: %w", err)
+		}
+		for k, v := range parsed {
+			originalEntriesMap[k] = v
+		}
+
 	}
 	report.PristineEntriesCount = len(originalEntriesMap)
 
@@ -143,9 +147,10 @@ func Recover(dryRun bool, cleanGhosts bool) (*RecoveryReport, error) {
 
 	// 6. Write backup and commit to sqlite
 	backupPath := fmt.Sprintf("%s.bak.%d", dbPath, time.Now().Unix())
-	if err := copyFile(dbPath, backupPath); err != nil {
+	if err := exec.Command("sqlite3", dbPath, fmt.Sprintf(".backup '%s'", strings.ReplaceAll(backupPath, "'", "''"))).Run(); err != nil {
 		return nil, fmt.Errorf("failed to create db backup: %w", err)
 	}
+
 	report.BackupPath = backupPath
 
 	updatedB64 := base64.StdEncoding.EncodeToString(finalBytes.Bytes())
@@ -242,21 +247,4 @@ func extractConvoInfo(cid, convDir, brainDir string) ConvoMeta {
 	)
 
 	return meta
-}
-
-func copyFile(src, dst string) error {
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-
-	out, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-
-	_, err = io.Copy(out, in)
-	return err
 }

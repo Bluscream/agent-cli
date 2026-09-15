@@ -1,0 +1,205 @@
+[
+  {
+    "command": "ai ",
+    "exit": 0,
+    "valid_json": false,
+    "seconds": 0.003,
+    "stderr": ""
+  },
+  {
+    "command": "ai --version",
+    "exit": 0,
+    "valid_json": false,
+    "seconds": 0.002,
+    "stderr": ""
+  },
+  {
+    "command": "ai status",
+    "exit": 0,
+    "valid_json": true,
+    "seconds": 0.157,
+    "stderr": ""
+  },
+  {
+    "command": "ai history --limit 2",
+    "exit": 0,
+    "valid_json": true,
+    "seconds": 0.053,
+    "stderr": ""
+  },
+  {
+    "command": "ai history --workspace /run/media/system/Data/Projects/agent-cli --limit 1",
+    "exit": 0,
+    "valid_json": true,
+    "seconds": 0.063,
+    "stderr": ""
+  },
+  {
+    "command": "ai history --since 1 minute",
+    "exit": 0,
+    "valid_json": true,
+    "seconds": 0.053,
+    "stderr": ""
+  },
+  {
+    "command": "ai models",
+    "exit": 0,
+    "valid_json": true,
+    "seconds": 0.014,
+    "stderr": ""
+  },
+  {
+    "command": "ai limits",
+    "exit": 0,
+    "valid_json": true,
+    "seconds": 0.013,
+    "stderr": ""
+  },
+  {
+    "command": "ai account",
+    "exit": 0,
+    "valid_json": true,
+    "seconds": 0.011,
+    "stderr": ""
+  },
+  {
+    "command": "ai account list",
+    "exit": 0,
+    "valid_json": true,
+    "seconds": 0.009,
+    "stderr": ""
+  },
+  {
+    "command": "ai skill",
+    "exit": 0,
+    "valid_json": true,
+    "seconds": 0.006,
+    "stderr": ""
+  },
+  {
+    "command": "ai memory",
+    "exit": 0,
+    "valid_json": true,
+    "seconds": 0.007,
+    "stderr": ""
+  },
+  {
+    "command": "ai mcp",
+    "exit": 0,
+    "valid_json": true,
+    "seconds": 0.007,
+    "stderr": ""
+  },
+  {
+    "command": "ai mcp list",
+    "exit": 0,
+    "valid_json": true,
+    "seconds": 0.004,
+    "stderr": ""
+  },
+  {
+    "command": "ai plugins",
+    "exit": 0,
+    "valid_json": true,
+    "seconds": 2.368,
+    "stderr": ""
+  },
+  {
+    "command": "ai plugins list",
+    "exit": 0,
+    "valid_json": true,
+    "seconds": 2.369,
+    "stderr": ""
+  },
+  {
+    "command": "ai plugins status",
+    "exit": 0,
+    "valid_json": true,
+    "seconds": 2.373,
+    "stderr": ""
+  },
+  {
+    "command": "ai plugins nudge status",
+    "exit": 0,
+    "valid_json": true,
+    "seconds": 0.016,
+    "stderr": ""
+  },
+  {
+    "command": "ai lasts --limit 1",
+    "exit": 0,
+    "valid_json": true,
+    "seconds": 0.079,
+    "stderr": ""
+  },
+  {
+    "command": "ai log --last --provider claude --limit 1",
+    "exit": 0,
+    "valid_json": true,
+    "seconds": 0.045,
+    "stderr": "",
+    "provider": "claude"
+  },
+  {
+    "command": "ai handoff 98256169-57f7-4239-9eaf-c73532e3253d",
+    "exit": 0,
+    "valid_json": true,
+    "seconds": 0.129,
+    "stderr": ""
+  },
+  {
+    "command": "ai conversation 98256169-57f7-4239-9eaf-c73532e3253d",
+    "exit": 0,
+    "valid_json": true,
+    "seconds": 0.105,
+    "stderr": ""
+  },
+  {
+    "command": "ai id 98256169-57f7-4239-9eaf-c73532e3253d",
+    "exit": 0,
+    "valid_json": true,
+    "seconds": 0.1,
+    "stderr": ""
+  },
+  {
+    "command": "ai conversation --recover --dry-run --provider antigravity",
+    "exit": 0,
+    "valid_json": true,
+    "seconds": 0.015,
+    "stderr": ""
+  },
+  {
+    "command": "ai conversation --recover --dry-run --provider codex",
+    "exit": 0,
+    "valid_json": true,
+    "seconds": 0.003,
+    "stderr": ""
+  },
+  {
+    "command": "ai conversation --recover --dry-run --provider claude",
+    "exit": 0,
+    "valid_json": true,
+    "seconds": 2.348,
+    "stderr": ""
+  },
+  {
+    "command": "ai completion bash",
+    "exit": 0,
+    "nonempty": true
+  },
+  {
+    "command": "ai completion zsh",
+    "exit": 0,
+    "nonempty": true
+  },
+  {
+    "command": "ai completion fish",
+    "exit": 0,
+    "nonempty": true
+  },
+  {
+    "command": "ai completion powershell",
+    "exit": 0,
+    "nonempty": true
+  }
+]

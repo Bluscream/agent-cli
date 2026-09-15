@@ -26,6 +26,9 @@ type GitStatus struct {
 
 // Inspect checks the specified directory for git status.
 func Inspect(dir string) GitStatus {
+	if strings.TrimSpace(dir) == "" {
+		return GitStatus{}
+	}
 	cleanDir := strings.TrimPrefix(dir, "file://")
 	cleanDir = filepath.Clean(cleanDir)
 

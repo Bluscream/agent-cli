@@ -38,7 +38,15 @@ Examples:
 				var mostRecent provider.Provider
 				var latestTime int64
 				var targetCID string
-				for _, prov := range provider.All() {
+				candidates := provider.All()
+				if provName != "" {
+					p, err := provider.Get(provName)
+					if err != nil {
+						return err
+					}
+					candidates = []provider.Provider{p}
+				}
+				for _, prov := range candidates {
 					convos, err := prov.ListConversations(provider.HistoryOptions{Last: true})
 					if err == nil && len(convos) > 0 {
 						if convos[0].UpdatedAt.Unix() > latestTime {

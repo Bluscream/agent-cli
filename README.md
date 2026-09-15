@@ -188,18 +188,59 @@ ai account fresh                # Clears active session keys for a fresh login t
 
 ---
 
+## Build, validate, and deploy
+
+```bash
+scripts/build.sh             # Full validation; writes bin/ai and bin/ai-debug
+scripts/build.sh --deploy    # Same gates, then atomically installs ~/.local/bin/ai
+```
+
+Run this after changes. It checks formatting, module checksums, vet, pinned
+Staticcheck, race and debug tests, release/debug compilation, vulnerabilities in
+the actual release binary, and isolated CLI command/format regressions. Test
+executables run on the host so a containerized Go launcher cannot silently skip
+SQLite integration tests. Skipped tests fail the build.
+
+Requires Bash, Go, Git, Python 3, SQLite 3, `timeout`, and `install`. The default
+Go toolchain is pinned to `go1.26.8`; first use may download it and analysis tools.
+Use `BINDIR` to choose the install directory and `VERSION` to override the Git
+revision label. Logs and `summary.txt` are under `bin/build-logs/`. Failed checks
+leave the installed executable untouched. These automated gates complement the
+ongoing review; they cannot prove that every provider behavior is correct.
+
 ## Development & Meta Helpers
 
 The repository includes meta validation targets to enforce idiomatic formatting, vetting, testing, and multi-mode builds:
 
 ```bash
 make fmt          # Format all Go source files (go fmt ./...)
+make fmt-check    # Check formatting without changing files
 make lint         # Run Go static analysis (go vet ./...)
+make staticcheck  # Run pinned, deeper static analysis (downloads tool if needed)
 make test         # Run unit tests across all packages
 make build        # Compile release binary to bin/ai
 make build-debug  # Compile debug-instrumented binary to bin/ai-debug
-make check        # Run fmt, lint, test, build, and build-debug in one pass
+make check        # Check formatting, vet, test, and build release/debug binaries
 make install      # Install release binary to ~/.local/bin/ai
 make clean        # Remove compiled binaries
 ```
 
+
+## Audit and compatibility status
+
+An incremental audit and repair is in progress. See
+[the audit log](docs/audits/2026-09-15/README.md) for completed repairs,
+verification, and outstanding limitations. Some advertised operations still
+need compatibility work; in particular, memory/skill synchronization, plugin
+registration, and recovery should not be treated as fully validated integrations.
+
+Runtime dependencies include `sqlite3` (with JSON output support), `git`, and
+Linux `/proc`. Claude patching and auto-nudge also depend on external scripts
+at the paths reported by `ai plugins status`. The Go build does not bundle
+these dependencies.
+
+MCP edits reject malformed JSON and preserve unknown server fields. Updates
+replace each file atomically, but changes across multiple files are not a
+single transaction. JSON-with-comments configurations are not yet supported.
+Account save/switch/fresh currently support Antigravity only and reject other
+provider selections.

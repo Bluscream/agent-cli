@@ -109,12 +109,6 @@ func (o *options) newDetail(w io.Writer) table.Writer {
 	return t
 }
 
-// detailWidth is kept for backward compatibility but delegates to flexColConfig.
-func (o *options) detailWidth(w io.Writer) int {
-	cfg := o.flexColConfig(w, 2, 22)
-	return cfg.WidthMax
-}
-
 func (o *options) renderTable(t table.Writer) string {
 	if !o.withHeader {
 		t.ResetHeaders()
