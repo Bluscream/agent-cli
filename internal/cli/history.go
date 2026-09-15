@@ -116,9 +116,15 @@ func historyCommand(o *options) *cobra.Command {
 			// + artifacts (~9) + size (~10) + 2×date (~32) + chrome (~17) = ~96.
 			// The remaining width is split between Title (col 3) and Workspace (col 4).
 			const fixedCost = 96
+			titleWidth, wsWidth := 40, 40
+			if cols := termWidth(out); cols > fixedCost+40 {
+				rem := cols - fixedCost
+				titleWidth = (rem * 6) / 10
+				wsWidth = rem - titleWidth
+			}
 			t.SetColumnConfigs([]table.ColumnConfig{
-				o.flexColConfig(out, 3, fixedCost+30), // title
-				o.flexColConfig(out, 4, fixedCost+30), // workspace (same budget)
+				o.flexCol(3, titleWidth),
+				o.flexCol(4, wsWidth),
 			})
 
 			for _, c := range allConvos {

@@ -63,24 +63,26 @@ func (o *options) newTable(w io.Writer) table.Writer {
 	s.Color.Header = text.Colors{text.Bold}
 	t.SetStyle(s)
 
-	// Constrain the table to the terminal width so it never overflows.
-	// SetAllowedRowLength clips the rendered row to exactly that many
-	// rune-columns, appending "~" on any line that got truncated.
-	if cols := termWidth(w); cols > 0 {
-		t.SetAllowedRowLength(cols)
-	}
-
 	return t
+}
+
+func (o *options) flexCol(colNum, width int) table.ColumnConfig {
+	if width < 20 {
+		width = 20
+	}
+	if o.maxColLength >= 0 && width > o.maxColLength {
+		width = o.maxColLength
+	}
+	return table.ColumnConfig{
+		Number:           colNum,
+		WidthMax:         width,
+		WidthMaxEnforcer: text.WrapText,
+	}
 }
 
 // flexColConfig returns a ColumnConfig for a "flexible" (wrappable) column —
 // one whose content (titles, paths, descriptions) should word-wrap rather
 // than cause the table to overflow.
-//
-//	colNum    — 1-based column number
-//	fixedCost — total character width consumed by all fixed columns + table
-//	            chrome (borders, padding, separators).  The flexible column
-//	            gets whatever is left, floored at minWidth.
 func (o *options) flexColConfig(w io.Writer, colNum, fixedCost int) table.ColumnConfig {
 	const minWidth = 20
 	cols := termWidth(w)
@@ -91,10 +93,7 @@ func (o *options) flexColConfig(w io.Writer, colNum, fixedCost int) table.Column
 			available = minWidth
 		}
 	}
-	if o.maxColLength >= 0 && available > o.maxColLength {
-		available = o.maxColLength
-	}
-	return table.ColumnConfig{Number: colNum, WidthMax: available}
+	return o.flexCol(colNum, available)
 }
 
 func (o *options) newDetail(w io.Writer) table.Writer {
@@ -113,17 +112,6 @@ func (o *options) newDetail(w io.Writer) table.Writer {
 func (o *options) renderTable(t table.Writer) string {
 	if !o.withHeader {
 		t.ResetHeaders()
-	}
-	if o.maxColLength >= 0 {
-		// Apply WidthMax: o.maxColLength across all columns
-		var cfgs []table.ColumnConfig
-		for col := 1; col <= 30; col++ {
-			cfgs = append(cfgs, table.ColumnConfig{
-				Number:   col,
-				WidthMax: o.maxColLength,
-			})
-		}
-		t.SetColumnConfigs(cfgs)
 	}
 	if o.format == "csv" {
 		return t.RenderCSV()
