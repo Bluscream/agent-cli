@@ -112,22 +112,22 @@ func historyCommand(o *options) *cobra.Command {
 			t := o.newTable(out)
 			t.AppendHeader(table.Row{"Provider", "ID", "Title", "Workspace", "Messages", "Artifacts", "Total Size", "Created", "Last Modified"})
 
-			// Column widths:
-			// Col 1: Provider    ~ 12 + 2 padding = 14
-			// Col 2: ID          ~  8 + 2 padding = 10
-			// Col 5: Messages    ~  8 + 2 padding = 10
-			// Col 6: Artifacts   ~  9 + 2 padding = 11
-			// Col 7: Total Size  ~ 10 + 2 padding = 12
-			// Col 8: Created     ~ 16 + 2 padding = 18
-			// Col 9: Last Mod    ~ 16 + 2 padding = 18
-			// Borders & separators: 10 vertical bars = 10
-			// Total non-flexible width + borders = 93 + padding = ~115
-			const fixedCost = 118
+			// Base overhead for fixed columns and borders:
+			// Col 1 (Provider): ~13, Col 2 (ID): ~10, Col 5 (Messages): ~10,
+			// Col 6 (Artifacts): ~11, Col 7 (Total Size): ~12, Col 8 (Created): ~18,
+			// Col 9 (Last Mod): ~18, Borders (10 vertical pipes): 10, Cell padding for cols 3 & 4: 4.
+			// Total base overhead: 106
+			const baseOverhead = 106
 			titleWidth, wsWidth := 30, 30
-			if cols := termWidth(out); cols > fixedCost+40 {
-				rem := cols - fixedCost - 4
-				titleWidth = (rem * 6) / 10
-				wsWidth = rem - titleWidth
+			if cols := termWidth(out); cols > 0 {
+				rem := cols - baseOverhead
+				if rem >= 20 {
+					titleWidth = (rem * 6) / 10
+					wsWidth = rem - titleWidth
+				} else {
+					titleWidth = 10
+					wsWidth = 10
+				}
 			}
 			t.SetColumnConfigs([]table.ColumnConfig{
 				o.flexCol(3, titleWidth),

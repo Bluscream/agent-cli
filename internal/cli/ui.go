@@ -67,8 +67,8 @@ func (o *options) newTable(w io.Writer) table.Writer {
 }
 
 func (o *options) flexCol(colNum, width int) table.ColumnConfig {
-	if width < 20 {
-		width = 20
+	if width < 10 {
+		width = 10
 	}
 	if o.maxColLength >= 0 && width > o.maxColLength {
 		width = o.maxColLength
