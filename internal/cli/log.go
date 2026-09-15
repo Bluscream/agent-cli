@@ -104,6 +104,10 @@ Examples:
 				if !showTools && t.Role == "system" && t.ToolCall != "" && strings.TrimSpace(t.Content) == "" {
 					continue
 				}
+				// Skip empty turns if they have no visible content and thinking is not enabled or empty
+				if strings.TrimSpace(t.Content) == "" && (!showThinking || strings.TrimSpace(t.Thinking) == "") {
+					continue
+				}
 				filteredTurns = append(filteredTurns, t)
 			}
 
@@ -135,6 +139,8 @@ Examples:
 					roleTag = green.Sprint("USER")
 				} else if turn.Role == "assistant" {
 					roleTag = bold.Sprint("ASSISTANT")
+				} else if turn.Role == "" {
+					roleTag = cyan.Sprint("NOTE")
 				}
 
 				header := fmt.Sprintf("[%s] %s", roleTag, turn.Timestamp.Format("15:04:05"))

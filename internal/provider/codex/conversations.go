@@ -294,6 +294,9 @@ func readRolloutTurns(path string, limit int) ([]provider.TurnInfo, int) {
 		}
 
 		role := obj.Payload.Role
+		if obj.Payload.Type == "reasoning" {
+			role = "assistant"
+		}
 		if role == "developer" {
 			// Skip internal role instructions
 			continue
@@ -317,6 +320,16 @@ func readRolloutTurns(path string, limit int) ([]provider.TurnInfo, int) {
 			contentStr = harnessErrStr
 		}
 		if contentStr == "" && thinkingStr == "" {
+			continue
+		}
+
+		// If this is pure reasoning without text content, attach it to the most recent assistant turn if available
+		if contentStr == "" && thinkingStr != "" && len(all) > 0 && all[len(all)-1].Role == "assistant" {
+			if all[len(all)-1].Thinking != "" {
+				all[len(all)-1].Thinking += "\n" + thinkingStr
+			} else {
+				all[len(all)-1].Thinking = thinkingStr
+			}
 			continue
 		}
 
