@@ -167,7 +167,7 @@ func memoryCommand(o *options) *cobra.Command {
 					idutil.ShortID(m.ID),
 					m.Title,
 					preview,
-					m.UpdatedAt.Format("2006-01-02 15:04"),
+					o.dateTimeCell(m.UpdatedAt),
 				})
 			}
 

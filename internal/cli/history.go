@@ -124,8 +124,8 @@ func historyCommand(o *options) *cobra.Command {
 
 			for _, c := range allConvos {
 				wsDisplay := strings.TrimPrefix(c.WorkspaceDir, "file://")
-				createdStr := c.CreatedAt.Format("2006-01-02 15:04")
-				updatedStr := c.UpdatedAt.Format("2006-01-02 15:04")
+				createdStr := o.dateTimeCell(c.CreatedAt)
+				updatedStr := o.dateTimeCell(c.UpdatedAt)
 
 				t.AppendRow(table.Row{
 					c.Provider,

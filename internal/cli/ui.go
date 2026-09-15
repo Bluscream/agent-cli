@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/jedib0t/go-pretty/v6/text"
@@ -276,4 +277,24 @@ func (o *options) sizeCell(n int64) string {
 		return strconv.FormatInt(n, 10)
 	}
 	return humanBytes(n)
+}
+
+// dateTimeCell formats a timestamp:
+// - CSV: standard "2006-01-02 15:04"
+// - Today: "15:04" (omits date if from today)
+// - Older than today: "2006-01-02 15:04"
+func (o *options) dateTimeCell(t time.Time) string {
+	if t.IsZero() {
+		return "-"
+	}
+	if o.format == "csv" {
+		return t.Format("2006-01-02 15:04")
+	}
+	now := time.Now()
+	y1, m1, d1 := t.Local().Date()
+	y2, m2, d2 := now.Date()
+	if y1 == y2 && m1 == m2 && d1 == d2 {
+		return t.Local().Format("15:04")
+	}
+	return t.Local().Format("2006-01-02 15:04")
 }
