@@ -10,21 +10,23 @@ import (
 var Version = "0.1.0-dev"
 
 type options struct {
-	format     string
-	provider   string
-	color      string
-	withHeader bool
-	last       bool
-	debug      bool
-	timer      *Timer
+	format       string
+	provider     string
+	color        string
+	withHeader   bool
+	last         bool
+	debug        bool
+	maxColLength int
+	timer        *Timer
 }
 
 func New(in io.Reader, out, errOut io.Writer) *cobra.Command {
 	o := &options{
-		format:     "auto",
-		color:      "auto",
-		withHeader: true,
-		debug:      IsDebugBuild,
+		format:       "auto",
+		color:        "auto",
+		withHeader:   true,
+		debug:        IsDebugBuild,
+		maxColLength: 100,
 	}
 
 	r := &cobra.Command{
@@ -46,6 +48,7 @@ func New(in io.Reader, out, errOut io.Writer) *cobra.Command {
 	f.BoolVar(&o.withHeader, "with-header", true, "Include header row in tabular/CSV output")
 	f.BoolVar(&o.last, "last", false, "Target only the most recent conversation")
 	f.BoolVar(&o.debug, "debug", IsDebugBuild, "Enable debug execution mode and performance timing metrics")
+	f.IntVar(&o.maxColLength, "max-column-length", 100, "Maximum width for table columns (-1 for uncapped)")
 
 	r.PersistentPreRunE = func(cmd *cobra.Command, args []string) error {
 		o.timer = NewTimer(o.debug)

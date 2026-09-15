@@ -84,14 +84,15 @@ func (o *options) newTable(w io.Writer) table.Writer {
 func (o *options) flexColConfig(w io.Writer, colNum, fixedCost int) table.ColumnConfig {
 	const minWidth = 20
 	cols := termWidth(w)
-	if cols <= 0 {
-		// Non-tty / piped: use a reasonable absolute cap so content never
-		// makes the table pathologically wide (e.g. long Codex prompts).
-		return table.ColumnConfig{Number: colNum, WidthMax: 80}
+	available := 80
+	if cols > 0 {
+		available = cols - fixedCost
+		if available < minWidth {
+			available = minWidth
+		}
 	}
-	available := cols - fixedCost
-	if available < minWidth {
-		available = minWidth
+	if o.maxColLength >= 0 && available > o.maxColLength {
+		available = o.maxColLength
 	}
 	return table.ColumnConfig{Number: colNum, WidthMax: available}
 }
@@ -112,6 +113,17 @@ func (o *options) newDetail(w io.Writer) table.Writer {
 func (o *options) renderTable(t table.Writer) string {
 	if !o.withHeader {
 		t.ResetHeaders()
+	}
+	if o.maxColLength >= 0 {
+		// Apply WidthMax: o.maxColLength across all columns
+		var cfgs []table.ColumnConfig
+		for col := 1; col <= 30; col++ {
+			cfgs = append(cfgs, table.ColumnConfig{
+				Number:   col,
+				WidthMax: o.maxColLength,
+			})
+		}
+		t.SetColumnConfigs(cfgs)
 	}
 	if o.format == "csv" {
 		return t.RenderCSV()
