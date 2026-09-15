@@ -19,7 +19,7 @@ func historyCommand(o *options) *cobra.Command {
 	var limit int
 	var targetProvider string
 	var targetWorkspace string
-	var fullTitle bool
+	var maxTitleLength int
 
 	cmd := &cobra.Command{
 		Use:   "history",
@@ -128,9 +128,15 @@ func historyCommand(o *options) *cobra.Command {
 				updatedStr := c.UpdatedAt.Format("2006-01-02 15:04")
 
 				title := c.Title
-				if !fullTitle && len([]rune(title)) > 150 {
+				if maxTitleLength >= 0 {
 					runes := []rune(title)
-					title = string(runes[:147]) + "..."
+					if len(runes) > maxTitleLength {
+						if maxTitleLength > 3 {
+							title = string(runes[:maxTitleLength-3]) + "..."
+						} else {
+							title = string(runes[:maxTitleLength])
+						}
+					}
 				}
 
 				t.AppendRow(table.Row{
@@ -156,7 +162,7 @@ func historyCommand(o *options) *cobra.Command {
 	cmd.Flags().BoolVar(&lastOnly, "last", false, "Show only the single most recent conversation")
 	cmd.Flags().IntVarP(&limit, "limit", "n", 25, "Maximum number of conversations to display")
 	cmd.Flags().StringVarP(&targetWorkspace, "workspace", "w", "", "Filter conversations that occurred in this workspace or any parent directory")
-	cmd.Flags().BoolVar(&fullTitle, "full-title", false, "Show full uncapped conversation title without truncation to 150 chars")
+	cmd.Flags().IntVar(&maxTitleLength, "max-title-length", 100, "Maximum conversation title length to display (-1 for full title)")
 
 	return cmd
 }

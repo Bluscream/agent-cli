@@ -21,9 +21,9 @@ func logCommand(o *options) *cobra.Command {
 		Aliases: []string{"logs"},
 		Short:   "Display the full turn-by-turn conversation log with messages and tool calls",
 		Long: `Print the turn-by-turn transcript log of a conversation.
-By default, tool calls and synthetic system prompts/harness context turns are suppressed unless --tools or --system is passed.
+By default, tool calls and system instructions/prompts are suppressed unless --tools or --system is passed.
 Use --thinking to display internal model thinking/reasoning blocks where available locally.
-Use --system (alias: --injected) to display system instructions, developer prompts, and injected context.
+Use --system to display system instructions, developer prompts, and system context turns.
 Use --no-errors (or --no.errors) to hide harness errors (rate limits, timeouts, out of tokens).
 
 Examples:
@@ -104,7 +104,7 @@ Examples:
 				if noErrors && t.IsHarnessError {
 					continue
 				}
-				if !showSystem && (t.Role == "system" || t.IsInjected) && t.ToolCall == "" && !t.IsHarnessError {
+				if !showSystem && t.Role == "system" && t.ToolCall == "" && !t.IsHarnessError {
 					continue
 				}
 				if !showTools && t.Role == "system" && t.ToolCall != "" && strings.TrimSpace(t.Content) == "" {
@@ -141,8 +141,6 @@ Examples:
 				roleTag := cyan.Sprint(strings.ToUpper(turn.Role))
 				if turn.IsHarnessError {
 					roleTag = red.Sprint("HARNESS ERROR")
-				} else if turn.IsInjected {
-					roleTag = yellow.Sprint("SYSTEM CONTEXT")
 				} else if turn.Role == "system" {
 					roleTag = yellow.Sprint("SYSTEM")
 				} else if turn.Role == "user" {
@@ -183,9 +181,7 @@ Examples:
 	cmd.Flags().StringVarP(&targetProvider, "provider", "p", "", "Target provider")
 	cmd.Flags().BoolVar(&showTools, "tools", false, "Include tool executions and calls in output")
 	cmd.Flags().BoolVar(&showThinking, "thinking", false, "Include thinking/reasoning blocks in output (where available locally)")
-	cmd.Flags().BoolVar(&showSystem, "system", false, "Include system instructions, developer prompts, and injected context")
-	cmd.Flags().BoolVar(&showSystem, "injected", false, "Alias for --system")
-	_ = cmd.Flags().MarkHidden("injected")
+	cmd.Flags().BoolVar(&showSystem, "system", false, "Include system instructions, developer prompts, and system context")
 	cmd.Flags().BoolVar(&noErrors, "no-errors", false, "Hide harness-level errors (rate limits, timeouts, token exhaustion)")
 	cmd.Flags().BoolVar(&noErrors, "no.errors", false, "Hide harness-level errors (alias for --no-errors)")
 	_ = cmd.Flags().MarkHidden("no.errors")

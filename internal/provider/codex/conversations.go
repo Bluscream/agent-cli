@@ -315,9 +315,7 @@ func readRolloutTurns(path string, limit int) ([]provider.TurnInfo, int) {
 			}
 		}
 		contentStr := strings.TrimSpace(sb.String())
-		isInjected := false
 		if role == "user" && (strings.HasPrefix(contentStr, "<recommended_plugins>") || strings.HasPrefix(contentStr, "<environment_context>")) {
-			isInjected = true
 			role = "system"
 		}
 
@@ -352,7 +350,6 @@ func readRolloutTurns(path string, limit int) ([]provider.TurnInfo, int) {
 			Timestamp:      ts,
 			Thinking:       thinkingStr,
 			IsHarnessError: isHarnessError,
-			IsInjected:     isInjected,
 		})
 	}
 

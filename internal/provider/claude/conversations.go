@@ -473,9 +473,7 @@ func readClaudeTurns(path string, limit int) []provider.TurnInfo {
 
 		contentStr = strings.TrimSpace(contentStr)
 
-		isInjected := false
 		if role == "user" && (strings.HasPrefix(contentStr, "<local-command-caveat>") || strings.HasPrefix(contentStr, "<command-name>") || strings.HasPrefix(contentStr, "<local-command-stdout>")) {
-			isInjected = true
 			role = "system"
 		}
 
@@ -510,9 +508,8 @@ func readClaudeTurns(path string, limit int) []provider.TurnInfo {
 			Timestamp:      ts,
 			Thinking:       thinkingStr,
 			IsHarnessError: isHarnessError,
-			IsInjected:     isInjected,
 		}
-		if role == "user" && !isInjected && firstUserTurn == nil {
+		if role == "user" && firstUserTurn == nil {
 			firstUserTurn = &turn
 		}
 		all = append(all, turn)
