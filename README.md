@@ -26,9 +26,9 @@ With a single call (e.g. `ai audit --provider claude --last --output json`), the
 
 | Agent | Binary / Launcher | Origin & Packaging | Config & State | Transcripts & Data |
 | :--- | :--- | :--- | :--- | :--- |
-| **Claude Desktop** | `/home/blu/.local/bin/Claude_Desktop.AppImage` | `io.github.aaddrick.claude-desktop-debian` (GitHub) | `~/.config/Claude/claude_desktop_config.json` | `~/.claude/projects/`, `~/.config/Claude/claude-code-sessions/` |
+| **Claude Desktop** | `~/.local/bin/Claude_Desktop.AppImage` | `io.github.aaddrick.claude-desktop-debian` (GitHub) | `~/.config/Claude/claude_desktop_config.json` | `~/.claude/projects/`, `~/.config/Claude/claude-code-sessions/` |
 | **Antigravity IDE** | `/var/home/linuxbrew/.linuxbrew/bin/antigravity-ide` | `ublue-os/tap/antigravity-ide-linux` (Linuxbrew) | `~/.config/Antigravity IDE/User/globalStorage/state.vscdb` | `~/.gemini/antigravity-ide/brain/`, `~/.gemini/antigravity-ide/conversations/` |
-| **Codex Desktop** | `/home/blu/Applications/codex-desktop.AppImage` | `ilysenko/codex-desktop-linux` (OpenAI deb repackager) | `~/.codex/.codex-global-state.json`, `~/.codex/state_5.sqlite` | `~/.codex/sessions/**/*.jsonl`, `~/.codex/memories_1.sqlite` |
+| **Codex Desktop** | `~/Applications/codex-desktop.AppImage` | `ilysenko/codex-desktop-linux` (OpenAI deb repackager) | `~/.codex/.codex-global-state.json`, `~/.codex/state_5.sqlite` | `~/.codex/sessions/**/*.jsonl`, `~/.codex/memories_1.sqlite` |
 
 ---
 

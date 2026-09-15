@@ -150,8 +150,8 @@ type ModelInfo struct {
 type AccountInfo struct {
 	Provider    string `json:"provider"`              // e.g. "antigravity", "claude", "codex"
 	ID          string `json:"id"`                    // unique account UUID or profile name
-	DisplayName string `json:"display_name"`          // e.g. "Blus cream", "Bluscream"
-	Email       string `json:"email,omitempty"`       // e.g. "bluscreamlp@gmail.com"
+	DisplayName string `json:"display_name"`          // e.g. "User", "Developer"
+	Email       string `json:"email,omitempty"`       // e.g. "user@example.com"
 	Plan        string `json:"plan,omitempty"`        // e.g. "Google AI Pro", "Claude Pro", "ChatGPT Plus"
 	IsActive    bool   `json:"is_active"`             // true if currently active/configured in the provider
 	ActiveIn    string `json:"active_in,omitempty"`   // e.g. "Antigravity IDE", "Claude Desktop", "Codex Desktop", or "-"
