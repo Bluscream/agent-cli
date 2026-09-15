@@ -17,7 +17,7 @@ func conversationCommand(o *options) *cobra.Command {
 
 	cmd := &cobra.Command{
 		Use:     "conversation [conversation-id]",
-		Aliases: []string{"convo"},
+		Aliases: []string{"convo", "convos", "chat", "chats"},
 		Short:   "Inspect detailed conversation metadata, artifacts, workspace git status, or trigger recovery",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			provName := targetProvider
