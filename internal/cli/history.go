@@ -112,13 +112,20 @@ func historyCommand(o *options) *cobra.Command {
 			t := o.newTable(out)
 			t.AppendHeader(table.Row{"Provider", "ID", "Title", "Workspace", "Messages", "Artifacts", "Total Size", "Created", "Last Modified"})
 
-			// Fixed-cost columns: provider (~12) + short-id (8) + messages (~8)
-			// + artifacts (~9) + size (~10) + 2×date (~32) + chrome (~17) = ~96.
-			// The remaining width is split between Title (col 3) and Workspace (col 4).
-			const fixedCost = 96
-			titleWidth, wsWidth := 40, 40
+			// Column widths:
+			// Col 1: Provider    ~ 12 + 2 padding = 14
+			// Col 2: ID          ~  8 + 2 padding = 10
+			// Col 5: Messages    ~  8 + 2 padding = 10
+			// Col 6: Artifacts   ~  9 + 2 padding = 11
+			// Col 7: Total Size  ~ 10 + 2 padding = 12
+			// Col 8: Created     ~ 16 + 2 padding = 18
+			// Col 9: Last Mod    ~ 16 + 2 padding = 18
+			// Borders & separators: 10 vertical bars = 10
+			// Total non-flexible width + borders = 93 + padding = ~115
+			const fixedCost = 118
+			titleWidth, wsWidth := 30, 30
 			if cols := termWidth(out); cols > fixedCost+40 {
-				rem := cols - fixedCost
+				rem := cols - fixedCost - 4
 				titleWidth = (rem * 6) / 10
 				wsWidth = rem - titleWidth
 			}
