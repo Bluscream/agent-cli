@@ -316,6 +316,12 @@ func readRolloutTurns(path string, limit int) ([]provider.TurnInfo, int) {
 			}
 		}
 		contentStr := strings.TrimSpace(sb.String())
+
+		// Filter out Codex desktop synthetic harness injections that are tagged with role "user"
+		if role == "user" && (strings.HasPrefix(contentStr, "<recommended_plugins>") || strings.HasPrefix(contentStr, "<environment_context>")) {
+			continue
+		}
+
 		if isHarnessError && contentStr == "" {
 			contentStr = harnessErrStr
 		}
