@@ -74,6 +74,7 @@ func (p *AntigravityProvider) ListConversations(opts provider.HistoryOptions) ([
 			// Check transcript.jsonl for newer activity than SQLite state.vscdb sync
 			tr := filepath.Join(brainDir, cid, ".system_generated", "logs", "transcript.jsonl")
 			if fi, err := os.Stat(tr); err == nil {
+				c.TranscriptPath = tr
 				if fi.ModTime().After(c.UpdatedAt) {
 					c.UpdatedAt = fi.ModTime()
 				}

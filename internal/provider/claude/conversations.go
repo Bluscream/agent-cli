@@ -277,6 +277,7 @@ func parseClaudeTranscript(path, sessionID, wsDir string, fi os.FileInfo) *provi
 		UpdatedAt:      fi.ModTime(),
 		WorkspaceDir:   wsDir,
 		TotalSizeBytes: fi.Size(),
+		TranscriptPath: path,
 	}
 
 	f, err := os.Open(path)

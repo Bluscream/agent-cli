@@ -35,6 +35,7 @@ type ConversationSummary struct {
 	UpdatedAt      time.Time `json:"updated_at"`
 	WorkspaceDir   string    `json:"workspace_dir,omitempty"`
 	Model          string    `json:"model,omitempty"`
+	TranscriptPath string    `json:"transcript_path,omitempty"`
 }
 
 type ArtifactInfo struct {

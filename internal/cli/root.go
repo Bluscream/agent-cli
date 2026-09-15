@@ -91,6 +91,7 @@ func New(in io.Reader, out, errOut io.Writer) *cobra.Command {
 		accountCommand(o),
 		limitsCommand(o),
 		modelsCommand(o),
+		searchCommand(o),
 	)
 
 	return r

@@ -74,6 +74,7 @@ func (p *CodexProvider) ListConversations(opts provider.HistoryOptions) ([]provi
 			UpdatedAt:      updatedAt,
 			WorkspaceDir:   cwd,
 			Model:          model,
+			TranscriptPath: rolloutPath,
 		})
 	}
 
