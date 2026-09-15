@@ -71,12 +71,15 @@ func (p *AntigravityProvider) ListConversations(opts provider.HistoryOptions) ([
 			c.ArtifactsCount = artCount
 			c.TotalSizeBytes = sizeBytes
 
-			// If this was an unindexed brain dir with 0 artifacts and no transcript, skip ghost
-			if !exists && artCount == 0 {
-				tr := filepath.Join(brainDir, cid, ".system_generated", "logs", "transcript.jsonl")
-				if _, err := os.Stat(tr); err != nil {
-					delete(convoMap, cid)
+			// Check transcript.jsonl for newer activity than SQLite state.vscdb sync
+			tr := filepath.Join(brainDir, cid, ".system_generated", "logs", "transcript.jsonl")
+			if fi, err := os.Stat(tr); err == nil {
+				if fi.ModTime().After(c.UpdatedAt) {
+					c.UpdatedAt = fi.ModTime()
 				}
+			} else if !exists && artCount == 0 {
+				// If this was an unindexed brain dir with 0 artifacts and no transcript, skip ghost
+				delete(convoMap, cid)
 			}
 		}
 	}
