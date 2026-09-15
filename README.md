@@ -40,6 +40,8 @@ With a single call (e.g. `ai audit --provider claude --last --output json`), the
 - `--color`: Colour output control (`auto`, `always`, `never`)
 - `--with-header`: Include/suppress tabular/CSV headers (default: `true`)
 - `--last`: Target only the most recent conversation
+- `--max-column-length`: Maximum column width before wrapping in tables (default: `100`, `-1` for uncapped)
+- `--debug`: Enable execution step timing and latency breakdown
 
 ### 1. `ai status`
 Displays installed status, running state, active task activity, PID(s), CPU%, Memory (RSS), and configured MCP server counts.
@@ -51,19 +53,31 @@ ai status --output json
 ```
 
 ### 2. `ai history`
-Lists conversation sessions sorted chronologically across all agents.
+Lists conversation sessions sorted chronologically across all agents with responsive auto-fit column wrapping.
 
 ```bash
 ai history
 ai history --limit 10
 ai history --provider codex
-ai history --since 2w       # Conversations in the last 2 weeks
-ai history --since "1 day"  # Conversations in the last day
-ai history --last           # Only the single most recent session
+ai history --workspace /some/dir # Filter to conversations in a workspace or parent
+ai history --since 2w            # Conversations in the last 2 weeks
+ai history --since "1 day"       # Conversations in the last day
+ai history --last                # Only the single most recent session
 ai history --output json
 ```
 
-### 3. `ai conversation <id>`
+### 3. `ai search`
+Universal cross-entity search across conversations, transcripts, memories, and skills with attribution (who, when, where) and context snippets.
+
+```bash
+ai search "pkg-manager"
+ai search --text "steam-cli" --workspace "/run/media/system/Data/Projects"
+ai search --pattern "git\s+(commit|push)"
+ai search --type memories "api key"
+ai search "pkg-manager" --output json
+```
+
+### 4. `ai conversation <id>`
 Inspects granular details about a conversation:
 - Timestamps, model, workspace directories
 - Live Git status in the workspace (branch, commit, dirty status, diff stat)
@@ -77,16 +91,45 @@ ai conversation --recover --dry-run
 ai conversation --recover
 ```
 
-### 4. `ai audit [<id>]`
-Produces a self-contained briefing dossier for cross-agent collaboration and handoffs.
+### 5. `ai lasts`
+Displays rich, multi-field briefing cards for the most recent N conversations across providers, including initial user prompts and last agent responses.
 
 ```bash
-ai audit --provider claude --last
-ai audit --provider codex --last --output json
-ai audit 98256169-57f7-4239-9eaf-c73532e3253d
+ai lasts
+ai lasts -n 5
+ai lasts --provider claude
 ```
 
-### 5. `ai memory`
+### 6. `ai log <id>`
+Prints turn-by-turn conversation transcripts with tool calls and internal reasoning.
+
+```bash
+ai log 046f0687
+ai log 046f0687 --tools
+ai log 046f0687 --thinking
+ai log 046f0687 --system
+ai log --last --no-errors
+```
+
+### 7. `ai id <identifier>`
+Generic lookup tool that resolves any short ID or full raw ID to the underlying entity (conversation, memory item, skill, or MCP server).
+
+```bash
+ai id 046f0687
+ai id ba07b876
+ai id omni-mcp
+```
+
+### 8. `ai handoff [<id>]` (alias: `ai audit`)
+Produces a self-contained briefing dossier of a conversation for cross-agent auditing and handoffs.
+
+```bash
+ai handoff --provider claude --last
+ai handoff --provider codex --last --output json
+ai handoff 98256169-57f7-4239-9eaf-c73532e3253d
+```
+
+### 9. `ai memory`
 Inspects, backs up, or purges agent memories and knowledge stores across providers.
 
 ```bash
@@ -96,7 +139,7 @@ ai memory --backup --backup-dir /tmp/   # Custom backup path
 ai memory --purge                       # Purges saved memory items
 ```
 
-### 6. `ai skill`
+### 10. `ai skill`
 Lists and inspects skills (both builtin and custom) across Antigravity, Codex, and Claude.
 
 ```bash
@@ -105,7 +148,7 @@ ai skill --provider antigravity
 ai skill --output json
 ```
 
-### 7. `ai mcp`
+### 11. `ai mcp`
 Centralized MCP (Model Context Protocol) server manager that synchronizes and configures servers across all IDEs and tools on your system (ports and improves `manage-mcp-servers.sh`).
 
 Supported config targets:
@@ -126,7 +169,7 @@ ai mcp disable my-server
 ai mcp remove my-server
 ```
 
-### 8. `ai plugins`
+### 12. `ai plugins`
 Manages universal plugin injection and helper services:
 - **Claude ASAR Patcher**: Injects universal plugin loader hook into Claude Desktop AppImage's `app.asar` (pointing to `~/.config/Claude/plugins/loader.js`).
 - **Claude Auto-Nudge**: Controls the background OCR/pointer auto-nudge macro.
@@ -141,7 +184,7 @@ ai plugins nudge start
 ai plugins nudge stop
 ```
 
-### 9. `ai account`
+### 13. `ai account`
 Multi-profile account switcher for Antigravity IDE and agents (ports `antigravity-switcher.sh`).
 
 ```bash
@@ -149,6 +192,25 @@ ai account list
 ai account save work-profile    # Captures active session tokens & updates desktop shortcut
 ai account switch work-profile  # Gracefully restarts IDE with selected profile
 ai account fresh                # Clears active session keys for a fresh login test
+```
+
+### 14. `ai models`
+Displays models available from each installed AI provider with active model indicators and context window limits.
+
+```bash
+ai models
+ai models --descriptions        # Include detailed model descriptions
+ai models --provider codex
+ai models --output json
+```
+
+### 15. `ai limits`
+Shows account usage limits, quotas, rate limits, and reset times across all providers from local state without network calls.
+
+```bash
+ai limits
+ai limits --provider codex
+ai limits --output json
 ```
 
 ---
