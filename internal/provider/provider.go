@@ -53,6 +53,7 @@ type TurnInfo struct {
 	ToolCall       string    `json:"tool_call,omitempty"`
 	Thinking       string    `json:"thinking,omitempty"`
 	IsHarnessError bool      `json:"is_harness_error,omitempty"`
+	IsInjected     bool      `json:"is_injected,omitempty"`
 }
 
 type ConversationDetail struct {

@@ -298,8 +298,7 @@ func readRolloutTurns(path string, limit int) ([]provider.TurnInfo, int) {
 			role = "assistant"
 		}
 		if role == "developer" {
-			// Skip internal role instructions
-			continue
+			role = "system"
 		}
 		if isHarnessError && role == "" {
 			role = "system"
@@ -316,10 +315,10 @@ func readRolloutTurns(path string, limit int) ([]provider.TurnInfo, int) {
 			}
 		}
 		contentStr := strings.TrimSpace(sb.String())
-
-		// Filter out Codex desktop synthetic harness injections that are tagged with role "user"
+		isInjected := false
 		if role == "user" && (strings.HasPrefix(contentStr, "<recommended_plugins>") || strings.HasPrefix(contentStr, "<environment_context>")) {
-			continue
+			isInjected = true
+			role = "system"
 		}
 
 		if isHarnessError && contentStr == "" {
@@ -353,6 +352,7 @@ func readRolloutTurns(path string, limit int) ([]provider.TurnInfo, int) {
 			Timestamp:      ts,
 			Thinking:       thinkingStr,
 			IsHarnessError: isHarnessError,
+			IsInjected:     isInjected,
 		})
 	}
 

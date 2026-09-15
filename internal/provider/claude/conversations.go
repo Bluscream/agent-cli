@@ -471,6 +471,14 @@ func readClaudeTurns(path string, limit int) []provider.TurnInfo {
 			}
 		}
 
+		contentStr = strings.TrimSpace(contentStr)
+
+		isInjected := false
+		if role == "user" && (strings.HasPrefix(contentStr, "<local-command-caveat>") || strings.HasPrefix(contentStr, "<command-name>") || strings.HasPrefix(contentStr, "<local-command-stdout>")) {
+			isInjected = true
+			role = "system"
+		}
+
 		if isHarnessError && contentStr == "" {
 			if b, err := json.Marshal(obj.Error); err == nil {
 				contentStr = fmt.Sprintf("[Harness Error: %s]", string(b))
@@ -502,8 +510,9 @@ func readClaudeTurns(path string, limit int) []provider.TurnInfo {
 			Timestamp:      ts,
 			Thinking:       thinkingStr,
 			IsHarnessError: isHarnessError,
+			IsInjected:     isInjected,
 		}
-		if role == "user" && firstUserTurn == nil {
+		if role == "user" && !isInjected && firstUserTurn == nil {
 			firstUserTurn = &turn
 		}
 		all = append(all, turn)
