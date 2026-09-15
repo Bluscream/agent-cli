@@ -252,13 +252,44 @@ func readRolloutTurns(path string, limit int) ([]provider.TurnInfo, int) {
 					Type string `json:"type"`
 					Text string `json:"text"`
 				} `json:"content"`
+				Summary []struct {
+					Text string `json:"text"`
+				} `json:"summary"`
+				Error any `json:"error"`
 			} `json:"payload"`
 		}
 		if err := json.Unmarshal([]byte(line), &obj); err != nil {
 			continue
 		}
 
-		if obj.Payload.Role == "" && len(obj.Payload.Content) == 0 {
+		isHarnessError := false
+		var harnessErrStr string
+		if obj.Payload.Error != nil {
+			isHarnessError = true
+			if m, ok := obj.Payload.Error.(map[string]any); ok {
+				if msg, ok := m["message"].(string); ok {
+					harnessErrStr = fmt.Sprintf("[Harness Error: %s]", msg)
+				}
+			}
+			if harnessErrStr == "" {
+				b, _ := json.Marshal(obj.Payload.Error)
+				harnessErrStr = fmt.Sprintf("[Harness Error: %s]", string(b))
+			}
+		}
+
+		thinkingStr := ""
+		if obj.Payload.Type == "reasoning" {
+			var sb strings.Builder
+			for _, s := range obj.Payload.Summary {
+				if s.Text != "" {
+					sb.WriteString(s.Text)
+					sb.WriteString("\n")
+				}
+			}
+			thinkingStr = strings.TrimSpace(sb.String())
+		}
+
+		if obj.Payload.Role == "" && len(obj.Payload.Content) == 0 && !isHarnessError && thinkingStr == "" {
 			continue
 		}
 
@@ -267,15 +298,25 @@ func readRolloutTurns(path string, limit int) ([]provider.TurnInfo, int) {
 			// Skip internal role instructions
 			continue
 		}
+		if isHarnessError && role == "" {
+			role = "system"
+		}
 
 		var sb strings.Builder
 		for _, c := range obj.Payload.Content {
 			if c.Text != "" {
-				sb.WriteString(c.Text)
+				if c.Type == "thought" {
+					thinkingStr = c.Text
+				} else {
+					sb.WriteString(c.Text)
+				}
 			}
 		}
 		contentStr := strings.TrimSpace(sb.String())
-		if contentStr == "" {
+		if isHarnessError && contentStr == "" {
+			contentStr = harnessErrStr
+		}
+		if contentStr == "" && thinkingStr == "" {
 			continue
 		}
 
@@ -287,10 +328,12 @@ func readRolloutTurns(path string, limit int) ([]provider.TurnInfo, int) {
 		}
 
 		all = append(all, provider.TurnInfo{
-			StepIndex: step,
-			Role:      role,
-			Content:   contentStr,
-			Timestamp: ts,
+			StepIndex:      step,
+			Role:           role,
+			Content:        contentStr,
+			Timestamp:      ts,
+			Thinking:       thinkingStr,
+			IsHarnessError: isHarnessError,
 		})
 	}
 

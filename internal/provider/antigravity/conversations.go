@@ -279,6 +279,7 @@ func readTurns(trPath string, limit int) []provider.TurnInfo {
 			Type      string `json:"type"`
 			Content   any    `json:"content"`
 			CreatedAt string `json:"created_at"`
+			Thinking  string `json:"thinking"`
 			ToolCalls []struct {
 				Name string `json:"name"`
 			} `json:"tool_calls"`
@@ -328,6 +329,7 @@ func readTurns(trPath string, limit int) []provider.TurnInfo {
 			Content:   strings.TrimSpace(contentStr),
 			Timestamp: ts,
 			ToolCall:  tc,
+			Thinking:  strings.TrimSpace(d.Thinking),
 		})
 	}
 

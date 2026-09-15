@@ -103,6 +103,7 @@ run debug-tests host_tests debug
 run release-build go build -trimpath -ldflags "-s -w -X agentcli.local/ai/internal/cli.Version=$version" -o "$work/ai" ./cmd/ai
 run debug-build go build -trimpath -tags debug -ldflags "-X agentcli.local/ai/internal/cli.Version=$version-debug" -o "$work/ai-debug" ./cmd/ai
 run vulnerabilities go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 -mode=binary "$work/ai"
+run secrets go run github.com/zricethezav/gitleaks/v8@v8.24.0 detect --source . -v
 run smoke python3 scripts/smoke.py "$work/ai" "$work/ai-debug"
 run shell-syntax bash -n scripts/build.sh
 

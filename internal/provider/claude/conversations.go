@@ -417,14 +417,24 @@ func readClaudeTurns(path string, limit int) []provider.TurnInfo {
 			} `json:"message"`
 			Content string `json:"content"`
 			Text    string `json:"text"`
+			Subtype string `json:"subtype"`
+			Level   string `json:"level"`
+			Error   any    `json:"error"`
 		}
 		if err := json.Unmarshal(line, &obj); err != nil {
 			continue
 		}
 
+		isHarnessError := false
+		if obj.Type == "system" && (obj.Subtype == "api_error" || obj.Level == "error") {
+			isHarnessError = true
+		}
+
 		role := "assistant"
 		if obj.Type == "user" || obj.Role == "user" || obj.Message.Role == "user" {
 			role = "user"
+		} else if isHarnessError {
+			role = "system"
 		} else if obj.Type != "assistant" && obj.Type != "model" && obj.Role != "assistant" && obj.Message.Role != "assistant" {
 			continue
 		}
@@ -433,27 +443,44 @@ func readClaudeTurns(path string, limit int) []provider.TurnInfo {
 		if contentStr == "" {
 			contentStr = obj.Text
 		}
+		thinkingStr := ""
 		if contentStr == "" {
 			switch v := obj.Message.Content.(type) {
 			case string:
 				contentStr = v
 			case []any:
 				var sb strings.Builder
+				var tb strings.Builder
 				for _, item := range v {
 					if m, ok := item.(map[string]any); ok {
-						if m["type"] == "text" {
+						switch m["type"] {
+						case "text":
 							sb.WriteString(fmt.Sprintf("%v\n", m["text"]))
-						} else if m["type"] == "tool_use" {
+						case "tool_use":
 							sb.WriteString(fmt.Sprintf("[Tool Call: %v]\n", m["name"]))
+						case "thinking":
+							if th, ok := m["thinking"].(string); ok {
+								tb.WriteString(th)
+								tb.WriteString("\n")
+							}
 						}
 					}
 				}
 				contentStr = sb.String()
+				thinkingStr = strings.TrimSpace(tb.String())
+			}
+		}
+
+		if isHarnessError && contentStr == "" {
+			if b, err := json.Marshal(obj.Error); err == nil {
+				contentStr = fmt.Sprintf("[Harness Error: %s]", string(b))
+			} else {
+				contentStr = fmt.Sprintf("[Harness Error: %v]", obj.Error)
 			}
 		}
 
 		contentStr = strings.TrimSpace(contentStr)
-		if contentStr == "" {
+		if contentStr == "" && thinkingStr == "" {
 			continue
 		}
 
@@ -469,10 +496,12 @@ func readClaudeTurns(path string, limit int) []provider.TurnInfo {
 		}
 
 		turn := provider.TurnInfo{
-			StepIndex: step,
-			Role:      role,
-			Content:   contentStr,
-			Timestamp: ts,
+			StepIndex:      step,
+			Role:           role,
+			Content:        contentStr,
+			Timestamp:      ts,
+			Thinking:       thinkingStr,
+			IsHarnessError: isHarnessError,
 		}
 		if role == "user" && firstUserTurn == nil {
 			firstUserTurn = &turn

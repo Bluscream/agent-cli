@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Git pre-commit hook to prevent committing secrets or credentials
+set -euo pipefail
+
+# Check for gitleaks or run via go
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks protect --staged -v
+elif command -v go >/dev/null 2>&1; then
+  go run github.com/zricethezav/gitleaks/v8@v8.24.0 protect --staged -v
+fi

@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Git pre-push hook to prevent pushing secrets or code violating size policy
+set -euo pipefail
+
+# Check for gitleaks or run via go
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks detect -v
+elif command -v go >/dev/null 2>&1; then
+  go run github.com/zricethezav/gitleaks/v8@v8.24.0 detect -v
+fi

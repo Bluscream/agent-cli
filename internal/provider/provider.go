@@ -46,11 +46,13 @@ type ArtifactInfo struct {
 }
 
 type TurnInfo struct {
-	StepIndex int       `json:"step_index"`
-	Role      string    `json:"role"`
-	Content   string    `json:"content"`
-	Timestamp time.Time `json:"timestamp"`
-	ToolCall  string    `json:"tool_call,omitempty"`
+	StepIndex      int       `json:"step_index"`
+	Role           string    `json:"role"`
+	Content        string    `json:"content"`
+	Timestamp      time.Time `json:"timestamp"`
+	ToolCall       string    `json:"tool_call,omitempty"`
+	Thinking       string    `json:"thinking,omitempty"`
+	IsHarnessError bool      `json:"is_harness_error,omitempty"`
 }
 
 type ConversationDetail struct {
