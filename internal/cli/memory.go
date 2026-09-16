@@ -165,7 +165,7 @@ func memoryCommand(o *options) *cobra.Command {
 				t.AppendRow(table.Row{
 					m.Provider,
 					idutil.ShortID(m.ID),
-					m.Title,
+					o.csvCell(m.Title),
 					preview,
 					o.dateTimeCell(m.UpdatedAt),
 				})

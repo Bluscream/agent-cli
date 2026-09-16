@@ -68,6 +68,13 @@ func (o *options) newTable(w io.Writer) table.Writer {
 }
 
 func (o *options) flexCol(colNum, width int) table.ColumnConfig {
+	// In CSV mode column widths are irrelevant — and more importantly,
+	// applying a WidthMaxEnforcer causes go-pretty to inject '\n' into
+	// cell values *before* RenderCSV runs, producing embedded newlines
+	// inside CSV fields that make tools like grep treat the output as binary.
+	if o.format == "csv" {
+		return table.ColumnConfig{Number: colNum}
+	}
 	if width < 10 {
 		width = 10
 	}
@@ -191,6 +198,21 @@ func (o *options) renderTable(t table.Writer) string {
 		return t.RenderCSV()
 	}
 	return t.Render()
+}
+
+// csvCell sanitizes a string value for CSV output by replacing embedded
+// newlines (and carriage returns) with a single space. This prevents tools
+// like grep and file(1) from treating the CSV stream as binary data, since
+// they do not understand RFC 4180 multi-line quoted fields.
+// In non-CSV modes the raw value is returned unchanged.
+func (o *options) csvCell(s string) string {
+	if o.format != "csv" {
+		return s
+	}
+	s = strings.ReplaceAll(s, "\r\n", " ")
+	s = strings.ReplaceAll(s, "\r", " ")
+	s = strings.ReplaceAll(s, "\n", " ")
+	return s
 }
 
 func (o *options) printJSON(w io.Writer, val any) error {

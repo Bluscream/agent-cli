@@ -130,8 +130,8 @@ func historyCommand(o *options) *cobra.Command {
 				t.AppendRow(table.Row{
 					c.Provider,
 					idutil.ShortID(c.ID),
-					c.Title,
-					wsDisplay,
+					o.csvCell(c.Title),
+					o.csvCell(wsDisplay),
 					c.MessagesCount,
 					c.ArtifactsCount,
 					o.sizeCell(c.TotalSizeBytes),
