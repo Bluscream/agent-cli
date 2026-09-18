@@ -19,6 +19,7 @@ func historyCommand(o *options) *cobra.Command {
 	var limit int
 	var targetProvider string
 	var targetWorkspace string
+	var keyword string
 
 	cmd := &cobra.Command{
 		Use:   "history",
@@ -92,6 +93,18 @@ func historyCommand(o *options) *cobra.Command {
 				allConvos = filtered
 			}
 
+			// Filter by keyword against title if specified
+			if keyword != "" {
+				lowerKey := strings.ToLower(keyword)
+				var keyFiltered []provider.ConversationSummary
+				for _, c := range allConvos {
+					if strings.Contains(strings.ToLower(c.Title), lowerKey) {
+						keyFiltered = append(keyFiltered, c)
+					}
+				}
+				allConvos = keyFiltered
+			}
+
 			// Sort unified across providers
 			sort.Slice(allConvos, func(i, j int) bool {
 				return allConvos[i].UpdatedAt.After(allConvos[j].UpdatedAt)
@@ -150,6 +163,7 @@ func historyCommand(o *options) *cobra.Command {
 	cmd.Flags().BoolVar(&lastOnly, "last", false, "Show only the single most recent conversation")
 	cmd.Flags().IntVarP(&limit, "limit", "n", 25, "Maximum number of conversations to display")
 	cmd.Flags().StringVarP(&targetWorkspace, "workspace", "w", "", "Filter conversations that occurred in this workspace or any parent directory")
+	cmd.Flags().StringVarP(&keyword, "keyword", "k", "", "Filter conversations whose title contains this substring")
 
 	return cmd
 }

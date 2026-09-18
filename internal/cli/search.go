@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"agentcli.local/ai/internal/search"
 	"github.com/jedib0t/go-pretty/v6/table"
@@ -16,8 +17,12 @@ func searchCommand(o *options) *cobra.Command {
 		targetWorkspace string
 		targetProvider  string
 		typeFilter      string
+		authorFilter    string
+		sinceStr        string
 		limit           int
 		caseSensitive   bool
+		titleOnly       bool
+		unique          bool
 	)
 
 	cmd := &cobra.Command{
@@ -31,7 +36,10 @@ Examples:
   ai search --text "steam-cli" --workspace "/run/media/system/Data/Projects"
   ai search --pattern "git\\s+(commit|push)"
   ai search --text "api key" --type memories
-  ai search --text "docker" --output json`,
+  ai search --text "docker" --output json
+  ai search "quest" --author user --unique
+  ai search "dayz" --title-only
+  ai search "dayz quest" --since 2w --author user`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 && queryText == "" && queryPattern == "" {
 				queryText = strings.Join(args, " ")
@@ -46,14 +54,27 @@ Examples:
 				filterProv = o.provider
 			}
 
+			var sinceTime time.Time
+			if sinceStr != "" {
+				t, err := ParseSinceDuration(sinceStr)
+				if err != nil {
+					return fmt.Errorf("invalid --since value: %w", err)
+				}
+				sinceTime = t
+			}
+
 			results, err := search.Execute(search.Options{
 				Text:          queryText,
 				Pattern:       queryPattern,
 				Workspace:     targetWorkspace,
 				Provider:      filterProv,
 				TypeFilter:    typeFilter,
+				AuthorFilter:  authorFilter,
+				Since:         sinceTime,
 				Limit:         limit,
 				CaseSensitive: caseSensitive,
+				TitleOnly:     titleOnly,
+				Unique:        unique,
 			})
 			if err != nil {
 				return err
@@ -125,8 +146,12 @@ Examples:
 	cmd.Flags().StringVarP(&targetWorkspace, "workspace", "w", "", "Filter conversations by workspace path")
 	cmd.Flags().StringVarP(&targetProvider, "provider", "p", "", "Filter by provider (antigravity, claude, codex)")
 	cmd.Flags().StringVar(&typeFilter, "type", "", "Filter by entity type (conversations, memories, skills)")
-	cmd.Flags().IntVarP(&limit, "limit", "n", 25, "Maximum number of results to display")
+	cmd.Flags().StringVarP(&authorFilter, "author", "a", "", "Filter by author role (user, assistant, tool, thinking, system)")
+	cmd.Flags().StringVar(&sinceStr, "since", "", "Only search conversations updated since duration (e.g. 2w, 1d, 3h)")
+	cmd.Flags().IntVarP(&limit, "limit", "n", 100, "Maximum number of results to display")
 	cmd.Flags().BoolVarP(&caseSensitive, "case-sensitive", "s", false, "Enable case-sensitive matching")
+	cmd.Flags().BoolVar(&titleOnly, "title-only", false, "Match only against titles, skip transcript loading (fast)")
+	cmd.Flags().BoolVarP(&unique, "unique", "u", false, "Emit only the first match per conversation (deduplicate)")
 
 	return cmd
 }

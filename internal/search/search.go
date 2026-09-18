@@ -33,8 +33,12 @@ type Options struct {
 	Workspace     string
 	Provider      string
 	TypeFilter    string // "conversations", "memories", "skills", or empty for all
+	AuthorFilter  string // filter by author/role: "user", "assistant", "tool", "thinking", "system", or empty for all
+	Since         time.Time
 	Limit         int
 	CaseSensitive bool
+	TitleOnly     bool // only match against conversation/entity titles, skip transcript loading
+	Unique        bool // emit only the first match per (provider, entity_id) pair
 }
 
 // Matcher encapsulates string or regex matching and context snippet generation.
@@ -135,6 +139,15 @@ func (m *Matcher) FindMatch(content string, maxSnippetLen int) (bool, string) {
 	return true, prefix + clean + suffix
 }
 
+// authorMatches reports whether a turn's role satisfies the author filter.
+// Empty filter matches everything.
+func authorMatches(role, filter string) bool {
+	if filter == "" {
+		return true
+	}
+	return strings.EqualFold(role, filter)
+}
+
 // Execute performs the search across conversations, memories, and skills according to Options.
 func Execute(opts Options) ([]MatchResult, error) {
 	matcher, err := NewMatcher(opts.Text, opts.Pattern, opts.CaseSensitive)
@@ -157,10 +170,25 @@ func Execute(opts Options) ([]MatchResult, error) {
 	searchMemories := opts.TypeFilter == "" || strings.EqualFold(opts.TypeFilter, "memories") || strings.EqualFold(opts.TypeFilter, "memory")
 	searchSkills := opts.TypeFilter == "" || strings.EqualFold(opts.TypeFilter, "skills") || strings.EqualFold(opts.TypeFilter, "skill")
 
+	// seen tracks (provider+entityID) for --unique deduplication.
+	seen := make(map[string]struct{})
+
 	var results []MatchResult
 	limit := opts.Limit
 	if limit <= 0 {
-		limit = 50
+		limit = 100
+	}
+
+	appendResult := func(r MatchResult) bool {
+		if opts.Unique {
+			key := r.Provider + "\x00" + r.EntityID
+			if _, dup := seen[key]; dup {
+				return false
+			}
+			seen[key] = struct{}{}
+		}
+		results = append(results, r)
+		return len(results) >= limit
 	}
 
 	// 1. Search Conversations
@@ -180,6 +208,11 @@ func Execute(opts Options) ([]MatchResult, error) {
 			}
 
 			for _, c := range convos {
+				// --since: skip conversations last updated before the cutoff
+				if !opts.Since.IsZero() && c.UpdatedAt.Before(opts.Since) {
+					continue
+				}
+
 				if cleanTarget != "" {
 					ws := filepath.Clean(strings.TrimPrefix(c.WorkspaceDir, "file://"))
 					if ws == "." || ws == "" {
@@ -192,7 +225,8 @@ func Execute(opts Options) ([]MatchResult, error) {
 
 				// Check Title first
 				if matched, snip := matcher.FindMatch(c.Title, 140); matched {
-					results = append(results, MatchResult{
+					// Title matches are never filtered by --author (titles have no author)
+					r := MatchResult{
 						Type:        "conversation",
 						Provider:    c.Provider,
 						EntityID:    idutil.ShortID(c.ID),
@@ -202,10 +236,15 @@ func Execute(opts Options) ([]MatchResult, error) {
 						Timestamp:   c.UpdatedAt,
 						Location:    "Title",
 						Snippet:     snip,
-					})
-					if len(results) >= limit {
+					}
+					if appendResult(r) {
 						return results, nil
 					}
+				}
+
+				// --title-only: skip transcript loading entirely
+				if opts.TitleOnly {
+					continue
 				}
 
 				// Check Transcript raw bytes before loading detailed conversation turns
@@ -224,8 +263,13 @@ func Execute(opts Options) ([]MatchResult, error) {
 				}
 
 				for _, t := range detail.Turns {
+					// --author: skip turns whose role doesn't match the filter
+					if !authorMatches(t.Role, opts.AuthorFilter) {
+						continue
+					}
+
 					if matched, snip := matcher.FindMatch(t.Content, 140); matched {
-						results = append(results, MatchResult{
+						r := MatchResult{
 							Type:        "conversation",
 							Provider:    c.Provider,
 							EntityID:    idutil.ShortID(c.ID),
@@ -235,15 +279,16 @@ func Execute(opts Options) ([]MatchResult, error) {
 							Timestamp:   t.Timestamp,
 							Location:    fmt.Sprintf("Step #%d", t.StepIndex),
 							Snippet:     snip,
-						})
-						if len(results) >= limit {
+						}
+						if appendResult(r) {
 							return results, nil
 						}
 					}
-					// Also check thinking or toolcall if present
-					if t.Thinking != "" {
+
+					// Also check thinking content if no author filter or filter allows it
+					if t.Thinking != "" && authorMatches("thinking", opts.AuthorFilter) {
 						if matched, snip := matcher.FindMatch(t.Thinking, 140); matched {
-							results = append(results, MatchResult{
+							r := MatchResult{
 								Type:        "conversation",
 								Provider:    c.Provider,
 								EntityID:    idutil.ShortID(c.ID),
@@ -253,8 +298,8 @@ func Execute(opts Options) ([]MatchResult, error) {
 								Timestamp:   t.Timestamp,
 								Location:    fmt.Sprintf("Step #%d (thinking)", t.StepIndex),
 								Snippet:     snip,
-							})
-							if len(results) >= limit {
+							}
+							if appendResult(r) {
 								return results, nil
 							}
 						}
@@ -274,7 +319,7 @@ func Execute(opts Options) ([]MatchResult, error) {
 			for _, m := range mems {
 				// Search title
 				if matched, snip := matcher.FindMatch(m.Title, 140); matched {
-					results = append(results, MatchResult{
+					r := MatchResult{
 						Type:        "memory",
 						Provider:    m.Provider,
 						EntityID:    idutil.ShortID(m.ID),
@@ -283,16 +328,19 @@ func Execute(opts Options) ([]MatchResult, error) {
 						Timestamp:   m.UpdatedAt,
 						Location:    "Title",
 						Snippet:     snip,
-					})
-					if len(results) >= limit {
+					}
+					if appendResult(r) {
 						return results, nil
 					}
 					continue
 				}
 
-				// Search content
+				// Search content (skip if TitleOnly)
+				if opts.TitleOnly {
+					continue
+				}
 				if matched, snip := matcher.FindMatch(m.Content, 140); matched {
-					results = append(results, MatchResult{
+					r := MatchResult{
 						Type:        "memory",
 						Provider:    m.Provider,
 						EntityID:    idutil.ShortID(m.ID),
@@ -301,8 +349,8 @@ func Execute(opts Options) ([]MatchResult, error) {
 						Timestamp:   m.UpdatedAt,
 						Location:    "Content",
 						Snippet:     snip,
-					})
-					if len(results) >= limit {
+					}
+					if appendResult(r) {
 						return results, nil
 					}
 				}
@@ -320,7 +368,7 @@ func Execute(opts Options) ([]MatchResult, error) {
 			for _, s := range skills {
 				// Check skill name and description
 				if matched, snip := matcher.FindMatch(s.Name+" "+s.Description, 140); matched {
-					results = append(results, MatchResult{
+					r := MatchResult{
 						Type:        "skill",
 						Provider:    s.Provider,
 						EntityID:    s.Name,
@@ -330,18 +378,21 @@ func Execute(opts Options) ([]MatchResult, error) {
 						Timestamp:   time.Now(),
 						Location:    "Description",
 						Snippet:     snip,
-					})
-					if len(results) >= limit {
+					}
+					if appendResult(r) {
 						return results, nil
 					}
 					continue
 				}
 
-				// Check skill instruction file (SKILL.md)
+				// Check skill instruction file (SKILL.md) — skip if TitleOnly
+				if opts.TitleOnly {
+					continue
+				}
 				skillMD := filepath.Join(s.Path, "SKILL.md")
 				if data, err := os.ReadFile(skillMD); err == nil {
 					if matched, snip := matcher.FindMatch(string(data), 140); matched {
-						results = append(results, MatchResult{
+						r := MatchResult{
 							Type:        "skill",
 							Provider:    s.Provider,
 							EntityID:    s.Name,
@@ -351,8 +402,8 @@ func Execute(opts Options) ([]MatchResult, error) {
 							Timestamp:   time.Now(),
 							Location:    "SKILL.md",
 							Snippet:     snip,
-						})
-						if len(results) >= limit {
+						}
+						if appendResult(r) {
 							return results, nil
 						}
 					}
