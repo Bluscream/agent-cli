@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 func (p *ClaudeProvider) ListPlugins() ([]provider.PluginItem, error) {
@@ -35,17 +36,33 @@ func (p *ClaudeProvider) ListPlugins() ([]provider.PluginItem, error) {
 				continue
 			}
 			name := e.Name()
+			// The plugins directory also holds per-plugin config files; only
+			// .js files are ever loaded.
+			if !strings.HasSuffix(name, ".js") {
+				continue
+			}
+
 			status := "installed"
 			if name == "loader.js" {
 				status = "loader"
 			}
+
+			// The loader requires *.main.js in the Electron main process and
+			// injects everything else into the renderer via executeJavaScript.
+			kind := "Web Script / Plugin"
+			where := "injected into Claude Desktop WebContents"
+			if strings.HasSuffix(name, ".main.js") {
+				kind = "Main Process Plugin"
+				where = "loaded in the Electron main process"
+			}
+
 			list = append(list, provider.PluginItem{
 				Provider:    p.Name(),
 				Name:        name,
-				Type:        "Web Script / Plugin",
+				Type:        kind,
 				Path:        filepath.Join(pluginsDir, name),
 				Status:      status,
-				Description: fmt.Sprintf("JavaScript plugin injected into Claude Desktop WebContents (%s)", name),
+				Description: fmt.Sprintf("JavaScript plugin %s (%s)", where, name),
 			})
 		}
 	}
