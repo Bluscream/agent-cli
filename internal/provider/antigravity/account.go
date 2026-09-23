@@ -200,18 +200,27 @@ func FreshSession() error {
 }
 
 func StopAntigravity() {
-	// Graceful SIGINT -> SIGTERM -> SIGKILL
+	// 1. Graceful SIGINT (trigger window close & state flush)
 	_ = exec.Command("pkill", "-INT", "-f", "antigravity-ide").Run()
-	time.Sleep(1 * time.Second)
-
-	cmdCheck := exec.Command("pgrep", "-f", "antigravity-ide")
-	if err := cmdCheck.Run(); err == nil {
-		_ = exec.Command("pkill", "-TERM", "-f", "antigravity-ide").Run()
-		time.Sleep(1 * time.Second)
-		if err := exec.Command("pgrep", "-f", "antigravity-ide").Run(); err == nil {
-			_ = exec.Command("pkill", "-9", "-f", "antigravity-ide").Run()
+	for i := 0; i < 6; i++ {
+		time.Sleep(500 * time.Millisecond)
+		if err := exec.Command("pgrep", "-f", "antigravity-ide").Run(); err != nil {
+			return // All processes exited cleanly
 		}
 	}
+
+	// 2. SIGTERM if still lingering
+	_ = exec.Command("pkill", "-TERM", "-f", "antigravity-ide").Run()
+	for i := 0; i < 6; i++ {
+		time.Sleep(500 * time.Millisecond)
+		if err := exec.Command("pgrep", "-f", "antigravity-ide").Run(); err != nil {
+			return // Exited
+		}
+	}
+
+	// 3. Force kill if still hung
+	_ = exec.Command("pkill", "-9", "-f", "antigravity-ide").Run()
+	time.Sleep(500 * time.Millisecond)
 }
 
 func LaunchAntigravity() error {
