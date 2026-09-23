@@ -4,7 +4,6 @@ import (
 	"agentcli.local/ai/internal/gitutil"
 	"agentcli.local/ai/internal/idutil"
 	"agentcli.local/ai/internal/provider"
-	"bufio"
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
@@ -262,88 +261,6 @@ func listArtifacts(brainDir string) []provider.ArtifactInfo {
 		return nil
 	})
 	return artifacts
-}
-
-func readTurns(trPath string, limit int) []provider.TurnInfo {
-	var turns []provider.TurnInfo
-	f, err := os.Open(trPath)
-	if err != nil {
-		return turns
-	}
-	defer f.Close()
-
-	var all []provider.TurnInfo
-	scanner := bufio.NewScanner(f)
-	scanner.Buffer(make([]byte, 1024*1024), 10*1024*1024)
-
-	for scanner.Scan() {
-		line := scanner.Text()
-		var d struct {
-			StepIndex int    `json:"step_index"`
-			Type      string `json:"type"`
-			Content   any    `json:"content"`
-			CreatedAt string `json:"created_at"`
-			Thinking  string `json:"thinking"`
-			ToolCalls []struct {
-				Name string `json:"name"`
-			} `json:"tool_calls"`
-		}
-		if err := json.Unmarshal([]byte(line), &d); err != nil {
-			continue
-		}
-
-		role := "system"
-		if d.Type == "USER_INPUT" {
-			role = "user"
-		} else if d.Type == "PLANNER_RESPONSE" || d.Type == "MODEL" {
-			role = "assistant"
-		}
-
-		contentStr := ""
-		switch v := d.Content.(type) {
-		case string:
-			contentStr = v
-		default:
-			b, _ := json.Marshal(v)
-			contentStr = string(b)
-		}
-
-		if strings.Contains(contentStr, "<USER_REQUEST>") {
-			parts := strings.Split(contentStr, "<USER_REQUEST>")
-			if len(parts) > 1 {
-				contentStr = strings.Split(parts[1], "</USER_REQUEST>")[0]
-			}
-		}
-
-		ts := time.Now()
-		if d.CreatedAt != "" {
-			if t, err := time.Parse(time.RFC3339Nano, d.CreatedAt); err == nil {
-				ts = t
-			}
-		}
-
-		tc := ""
-		if len(d.ToolCalls) > 0 {
-			tc = d.ToolCalls[0].Name
-		}
-
-		all = append(all, provider.TurnInfo{
-			StepIndex: d.StepIndex,
-			Role:      role,
-			Content:   strings.TrimSpace(contentStr),
-			Timestamp: ts,
-			ToolCall:  tc,
-			Thinking:  strings.TrimSpace(d.Thinking),
-		})
-	}
-
-	if limit > 0 && len(all) > limit {
-		turns = all[len(all)-limit:]
-	} else {
-		turns = all
-	}
-
-	return turns
 }
 
 func parseTrajectorySummary(cid string, rawSub []byte) *provider.ConversationSummary {

@@ -31,6 +31,15 @@ Baseline vulnerability scan: no reachable dependency vulnerabilities. It found G
 
 Baseline coverage collection encountered a local missing `covdata` tool. Ordinary and race tests ran successfully. Partial baseline coverage showed CLI 3.3%, Antigravity 12.6%, MCP 61.2%, Git 79.3%, ID utilities 87.5%; Codex and Claude had no tests. These are baseline figures, not post-repair coverage.
 
+## Antigravity transcript repair (2026-09-16)
+
+- Fixed missing/null message content being rendered as the literal `null`. Literal user/assistant text containing `null` remains intact.
+- Preserve every exported tool call and its raw JSON arguments, including multiple calls in one planner step. Separate narrative from calls so filtering tools does not remove assistant text. Arguments are available in text and JSON output without numeric rounding.
+- Classify model-sourced execution steps as tool results so `log --tools` shows their output without requiring `--system`. Hide tool calls/results by default, before applying the displayed-turn limit. Calls without arguments remain visible with `--tools`.
+- Tool-only planner steps no longer replace the handoff's last assistant response. Missing/invalid timestamps remain unknown instead of being fabricated as the current time.
+- Regression fixtures cover the observed Antigravity schema, null versus literal text, multiple calls, structured/long content, exact JSON integers, tool/system visibility, tail limits, JSON output, and handoff response selection. Provider data is read-only; tests use temporary HOME/transcript directories.
+- This does not finish transcript fidelity across all providers: scanner-error handling, malformed-record diagnostics, call/result correlation where identifiers exist, and Claude/Codex tool parsing remain follow-ups.
+
 ## Remaining work, in order
 
 ### Data mutations and recovery

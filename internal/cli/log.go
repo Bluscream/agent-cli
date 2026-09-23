@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -107,11 +109,11 @@ Examples:
 				if !showSystem && t.Role == "system" && t.ToolCall == "" && !t.IsHarnessError {
 					continue
 				}
-				if !showTools && t.Role == "system" && t.ToolCall != "" && strings.TrimSpace(t.Content) == "" {
+				if !showTools && (t.ToolCall != "" || t.Role == "tool") {
 					continue
 				}
 				// Skip empty turns if they have no visible content and thinking is not enabled or empty
-				if strings.TrimSpace(t.Content) == "" && (!showThinking || strings.TrimSpace(t.Thinking) == "") {
+				if strings.TrimSpace(t.Content) == "" && (!showThinking || strings.TrimSpace(t.Thinking) == "") && !(showTools && t.ToolCall != "") {
 					continue
 				}
 				filteredTurns = append(filteredTurns, t)
@@ -163,6 +165,14 @@ Examples:
 						fmt.Fprintf(out, "%s %s\n", cyan.Sprint("│"), line)
 					}
 					fmt.Fprintln(out, cyan.Sprintf("╰──────────────────────────────────────────────────────────"))
+				}
+
+				if len(turn.ToolArguments) > 0 {
+					var arguments bytes.Buffer
+					if err := json.Indent(&arguments, turn.ToolArguments, "", "  "); err != nil {
+						return fmt.Errorf("format tool arguments: %w", err)
+					}
+					fmt.Fprintf(out, "Arguments:\n%s\n", arguments.String())
 				}
 
 				if turn.Content != "" {
