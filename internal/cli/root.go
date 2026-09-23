@@ -56,6 +56,9 @@ func New(in io.Reader, out, errOut io.Writer) *cobra.Command {
 
 		switch o.color {
 		case "auto", "always", "never":
+			// Apply the colour mode here rather than only when a table is
+			// built, so plain-text commands such as `log` honour --color too.
+			o.applyColor(cmd.OutOrStdout())
 		default:
 			return errors.New("--color must be auto, always, or never")
 		}
