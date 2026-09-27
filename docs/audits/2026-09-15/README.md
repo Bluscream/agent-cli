@@ -40,6 +40,58 @@ Baseline coverage collection encountered a local missing `covdata` tool. Ordinar
 - Regression fixtures cover the observed Antigravity schema, null versus literal text, multiple calls, structured/long content, exact JSON integers, tool/system visibility, tail limits, JSON output, and handoff response selection. Provider data is read-only; tests use temporary HOME/transcript directories.
 - This does not finish transcript fidelity across all providers: scanner-error handling, malformed-record diagnostics, call/result correlation where identifiers exist, and Claude/Codex tool parsing remain follow-ups.
 
+## Claude Desktop profile management (2026-09-27)
+
+- Added profile save, switch, fresh, and listing for Claude Desktop in `internal/provider/claude/account.go`.
+- Implemented maximum surgical precision targeting only values bound to authentication, keeping all other state intact:
+  - Chromium cookies (`~/.config/Claude/Cookies`): surgical extraction and replacement of auth-only rows (`sessionKey`, `sessionKeyV3`, `sessionKeyLC`, `sessionKeyV3LC`, `__Host-ant_trusted_device`, `lastActiveOrg`, `routingHint`, `activitySessionId`), strictly preserving Cloudflare clearance (`cf_clearance`, `__cf_bm`), cookie consent preferences (`anthropic-consent-preferences`), theme, and sidebar visibility across accounts and fresh logins.
+  - Electron app configuration (`~/.config/Claude/config.json`): key-level extraction and restoration of auth tokens (`lastKnownAccountUuid`, `oauth:tokenCache`, `oauth:tokenCacheV2`, `dxt:allowlist*`), preserving window geometry, zoom, locale, and UI preferences.
+  - Active OAuth metadata (`~/.claude.json`): key-level merge of `oauthAccount` and `userID`, strictly preserving custom MCP servers (`mcpServers`) and project configs.
+  - Device registry (`~/.config/Claude/ant-device-registry.json`): non-destructive JSON map merge so registered device tokens for multiple account UUIDs coexist.
+  - Storage exclusions: `IndexedDB` (~8.1 MB offline cache) and `Session Storage` are completely excluded; `Local Storage` is untouched so drafts, prompt inputs, and side-pane UI layouts stay intact across switches.
+  - Global MCP configuration (`claude_desktop_config.json`) and plugins are strictly preserved and untouched.
+- Replaced broad `pkill -f` with user ownership-aware process control (`-u <uid>`) with graceful SIGINT -> SIGTERM -> SIGKILL transitions and stale lock cleanup (`SingletonLock`, `SingletonCookie`, `SingletonSocket`, `Cookies-wal`, `Cookies-journal`).
+- Updated CLI (`internal/cli/account.go`) to support `-p claude`, with automatic provider resolution in `ai account switch <name>` when the profile name is unique across providers, and ambiguity detection when identical profile names exist.
+- Updated `ai account list` to show all saved Claude profiles with `ACTIVE` or `AVAILABLE` status.
+- Desktop shortcut creation (`~/Desktop/claude-<name>.desktop`) pointing to `ai account switch <name> -p claude`.
+- Unit tests in `internal/provider/claude/account_test.go` and `internal/cli/account_test.go` test isolation, private file permissions (0700/0600), non-destructive state restoration, surgical cookie queries, and validation.
+
+## Conversation lookup ergonomics (2026-09-27)
+
+Found while using the CLI to locate a conversation from a half-remembered title
+and a quoted phrase. Each item below cost an avoidable extra command or
+published a wrong number.
+
+- Message counts no longer report the position at which a partial scan stopped. `parseClaudeTranscript` stops reading once it has the title and workspace, and then published that stopping point (10, or the 40-line cap) as `messages_count`; a 3300-record transcript reported 10. Listing now reports `provider.CountUnknown` (-1) unless it reached the end of the file without a scanner error, `GetConversation` reports the exact record count returned by `readClaudeTurns`, and the Claude session-index path no longer invents a count of 1. Codex's listing uses the same sentinel in place of its previous 0. `ai history` and `ai lasts` render an unknown count as `-` rather than as a number.
+- Search results carry the raw conversation ID. `MatchResult` gained `full_id` alongside the 8-character `entity_id`, so a consumer can address a conversation without a second resolution step. Short IDs already resolved in `ai log` and `ai conversation`; only the canonical value was missing from the output.
+- `ai log` gained `--grep`, `--grep-pattern`, and `--context`/`-C`. Locating a phrase inside a 664-turn log previously meant dumping the whole transcript and filtering it outside the tool. Matching reuses `search.Matcher`, covers content, thinking, and tool names, and both text and JSON output report how many turns matched on their own.
+- Title search matches every term in any order. `ai history --keyword` and the new `ai search --fuzzy` no longer require a remembered title to be a contiguous substring of the real one. When a title search finds nothing, `ai history` names `ai search` instead of printing an empty table.
+- Fixed in passing: `QuickBytesMatch` lowercased the haystack but not the needle, so a case-sensitive search for text containing capitals matched nothing and skipped each transcript before its turns were read.
+
+Regression tests cover the partial-scan count against a 137-record fixture, full IDs in search results, grep/context/regex/no-match behavior in `ai log`, out-of-order and absent-term keyword matching, the empty-result suggestion, and case-sensitive quick matching. All use temporary HOME directories and fixtures; no real conversation data is written to.
+
+## Ingestion moved into the CLI (2026-09-27)
+
+- `ai ingest` publishes transcripts from every provider into a Qdrant collection, replacing the separate TypeScript `ai-history-mcp` daemon, which had not ingested anything since 2026-08-30 and whose systemd unit is now renamed out of systemd's view. Rather than porting its three bespoke transcript parsers, ingestion reuses the providers already here, so it inherits their parsing and records each conversation's real workspace instead of the daemon's own working directory.
+- Opt-in by environment: without `AI_INGEST_QDRANT_URL` the command explains what to set and exits successfully. Configuration lives in `~/.config/environment.d/30-ai-ingest.conf`.
+- Points are payload-only. The daemon wrote a 1536-dimension zero vector on every point and queried with a full-text payload filter, never a vector search, so the embeddings it implied never existed; writing none keeps the same search behaviour without the storage. Qdrant still demands a vector field, so each point carries an empty object, and ingest refuses to write into a collection that declares real vectors.
+- Point IDs derive from provider, session, step index and an ordinal within the step, leaving out the timestamp the daemon hashed in, so re-ingesting updates a turn in place instead of duplicating it whenever a timestamp reparses differently. The ordinal was added after the before/after counters showed 426 fewer points stored than sent: Antigravity emits a planner step's narrative and each of its tool calls as separate turns under one `step_index`, so keying on the step alone silently overwrote all but the last — one conversation stored 1712 of its 1918 turns while reporting success. The ordinal is omitted at zero, so the identities that were already correct did not change and a forced re-ingest backfilled exactly the missing 426 points.
+- `--watch` keeps the process running via fsnotify, coalescing bursts of appends into one pass. `cmd/ai` now cancels the command context on SIGINT/SIGTERM so long-running commands stop cleanly. `TranscriptRooter` is an optional capability interface rather than another method on `Provider`, per the remaining-work item about that interface being oversized.
+- `ai history`, `ai search` and `ai log` accept `--remote` to read the collection instead of local transcript files, including short-ID resolution via the facet endpoint. Fields the collection does not carry render as `-`: `sizeCell` now treats a negative size as unknown. `--remote` rejects `--pattern` rather than ignoring it, because matching goes through Qdrant's full-text index.
+- Progress reporting: a bar, running point total, elapsed time and an ETA extrapolated from completed conversations, plus a summary ending in the collection's point count either side of the pass. The bar draws only on a terminal, and widths are measured in runes because each bar glyph is three bytes.
+
+The Qdrant REST calls are hand-written against `net/http` rather than using the official client, which is gRPC-first and pulls grpc, protobuf and genproto into a module that otherwise has nine dependencies — a poor trade for five JSON calls. `fsnotify` is a real dependency.
+
+Regression tests use an HTTP test double that evaluates filters, ordering and the paging cursor, so no test touches a real instance. An earlier version of that double returned every stored point regardless of the filter, which made the query tests pass without exercising anything.
+
+## Size limits are now enforced (2026-09-27)
+
+`internal/codecheck` existed and worked but nothing ran it: it was absent from `scripts/build.sh`, `make check` and `.githooks/`, and the tree had drifted to 34 oversized functions. It is now the `size-limits` step of the gate and a `make size-limits` target.
+
+Enforcing it outright would have failed on code nobody is touching, including work in progress, so `.codecheck-baseline` records the functions that were already oversized along with the size each had. The list can only shrink: an unlisted breach fails, a listed function that grew past its recorded size fails, and a listed function that now fits fails as stale so the entry gets deleted. Files past 600 lines are reported as a notice rather than a failure. The checker is now split into `scan.go`, `baseline.go` and `main.go` with tests covering each failure mode, and the gate was verified to reject a deliberately oversized function.
+
+Splitting the 34 baselined functions — mostly cobra constructors whose `RunE` closure holds the whole command body — remains outstanding.
+
 ## Remaining work, in order
 
 ### Data mutations and recovery
@@ -56,7 +108,7 @@ Baseline coverage collection encountered a local missing `covdata` tool. Ordinar
 
 - Centralize provider selection and argument validation; remove shadowed global/local flags. Resolve ambiguous prefixes instead of selecting the first match. Define `--last`, zero/negative limits, and mutually exclusive mutations consistently.
 - Make JSON/compact output consistent for mutations, errors, empty arrays, and debug data. CSV currently mixes data with footnotes/headings in several commands. Apply color options before constructing styled values; keep ANSI sequences out of machine output.
-- Return partial errors explicitly instead of silently skipping provider failures. Stop representing unavailable counts/timestamps/quotas as real zeros/current times.
+- Return partial errors explicitly instead of silently skipping provider failures. Stop representing unavailable counts/timestamps/quotas as real zeros/current times. Conversation message counts now use the `CountUnknown` sentinel; timestamps and quotas still fabricate values.
 - Separate full transcripts from previews and summaries. Preserve tool calls/results, roles, channels, call IDs, and timestamps. Add scanner-error handling and bounded/streaming reads without silently losing long records.
 - Handoffs need the actual initial goal, latest user instruction, complete final response, source provenance, open tasks, and accurate touched artifacts. Current heuristics do not establish task completion.
 - Remove guessed model context windows/tiers and guessed quota resets; expose source, age, and uncertainty. Properly parse TOML rather than scanning `model =` lines.
@@ -65,11 +117,11 @@ Baseline coverage collection encountered a local missing `covdata` tool. Ordinar
 
 ### Architecture, performance, and maintenance
 
-- Split the oversized provider interface into optional capabilities. Inject paths, clocks, process runners, and provider collections rather than depending on HOME/global registration throughout.
+- Split the oversized provider interface into optional capabilities. `TranscriptRooter` is the first of these, added for ingestion's watch mode; the rest of `Provider` is unchanged. Inject paths, clocks, process runners, and provider collections rather than depending on HOME/global registration throughout.
 - Avoid rescanning all histories for every detail lookup; cache within one command, push filters into queries, and avoid repeated subprocess/database reads. `plugins list/status` spends roughly 2.3 seconds scanning an AppImage with `strings`.
 - Replace hardcoded personal paths and external script assumptions with discovery/configuration and actionable diagnostics. Respect applicable environment/XDG locations.
 - Expand contract tests across commands/formats and providers; include malformed/oversized records, missing dependencies, permissions, cancellation, absent providers, ambiguous IDs, and failed writes. Add actual sync tests: the original test named AddRemoveSync did not exercise sync.
-- Add non-mutating format validation, optional static analysis and vulnerability targets, CI, toolchain/version provenance, and release documentation. Refresh README command coverage, unsupported features, prerequisites, schema assumptions, and recovery limits.
+- Add CI, toolchain/version provenance, and release documentation. Format validation, static analysis, vulnerability and secret scanning, and size limits are all gate steps now; README command coverage is current as of 2026-09-27. Unsupported features, prerequisites, schema assumptions, and recovery limits still need documenting.
 
 ## Read inventory
 
