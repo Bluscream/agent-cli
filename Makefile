@@ -7,11 +7,11 @@ all: build
 
 build:
 	@mkdir -p bin
-	go build -ldflags "-s -w -X agentcli.local/ai/internal/cli.Version=0.1.0" -o bin/ai ./cmd/ai
+	go build -ldflags "-s -w -X agentcli.local/ai/internal/cli.Version=0.2.0" -o bin/ai ./cmd/ai
 
 build-debug:
 	@mkdir -p bin
-	go build -tags debug -ldflags "-X agentcli.local/ai/internal/cli.Version=0.1.0-debug" -o bin/ai-debug ./cmd/ai
+	go build -tags debug -ldflags "-X agentcli.local/ai/internal/cli.Version=0.2.0-debug" -o bin/ai-debug ./cmd/ai
 
 test:
 	go test -v ./...
