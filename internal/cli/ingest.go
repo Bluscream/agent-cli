@@ -18,7 +18,7 @@ func notConfiguredMessage() string {
 Set %s to a Qdrant endpoint to enable it, for example in
 ~/.config/environment.d/30-ai-ingest.conf:
 
-  %s=http://192.168.2.11:6333
+  %s=http://qdrant.example:6333
   %s=%s
 
 Optional: %s, %s, %s.`,
