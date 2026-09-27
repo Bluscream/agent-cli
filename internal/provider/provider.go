@@ -166,6 +166,16 @@ type AccountInfo struct {
 	ConfigPath  string `json:"config_path,omitempty"` // path to config or profile file
 }
 
+// TranscriptRooter is an optional capability: a provider that can name the
+// directories its transcripts are written into, so a caller can watch them for
+// changes. It is deliberately separate from Provider rather than another method
+// on an already oversized interface.
+type TranscriptRooter interface {
+	// TranscriptRoots returns existing directories holding this provider's
+	// transcripts. Missing directories are omitted rather than reported.
+	TranscriptRoots() []string
+}
+
 type Provider interface {
 	Name() string
 	DisplayName() string

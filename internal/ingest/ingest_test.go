@@ -1,0 +1,395 @@
+package ingest
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"sync"
+	"testing"
+
+	_ "agentcli.local/ai/internal/provider/claude"
+)
+
+// fakeQdrant records what an ingestion pass sent, so tests never touch a real
+// instance.
+type fakeQdrant struct {
+	mu            sync.Mutex
+	server        *httptest.Server
+	created       bool
+	indexes       []string
+	badQuery      []string
+	points        map[string]Payload
+	upsertCalls   int
+	lastWait      string
+	missingVector int
+	// vectors makes a pre-existing collection report a vector config.
+	vectors bool
+	// exists makes the collection appear to already be present.
+	exists bool
+}
+
+func newFakeQdrant(t *testing.T) *fakeQdrant {
+	t.Helper()
+	f := &fakeQdrant{points: map[string]Payload{}}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/collections/", func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		path := strings.TrimPrefix(r.URL.Path, "/collections/")
+
+		// url.JoinPath escapes a "?" inside a path element, which silently
+		// turns "index?wait=true" into a 404 path. Record any request whose
+		// query leaked into the path so a test can fail on it.
+		if strings.ContainsAny(r.URL.Path, "?%") {
+			f.badQuery = append(f.badQuery, r.URL.Path)
+		}
+
+		switch {
+		case r.Method == http.MethodGet && !strings.Contains(path, "/"):
+			if !f.exists && !f.created {
+				w.WriteHeader(http.StatusNotFound)
+				_, _ = w.Write([]byte(`{"status":{"error":"Not Found"}}`))
+				return
+			}
+			vectors := "{}"
+			if f.vectors {
+				vectors = `{"size":1536,"distance":"Cosine"}`
+			}
+			_, _ = w.Write([]byte(`{"result":{"status":"green","points_count":` +
+				strconv.Itoa(len(f.points)) + `,"config":{"params":{"vectors":` + vectors + `}}}}`))
+
+		case r.Method == http.MethodPut && !strings.Contains(path, "/"):
+			f.created = true
+			_, _ = w.Write([]byte(`{"result":true}`))
+
+		case r.Method == http.MethodPut && strings.HasPrefix(pathTail(path), "index"):
+			var body struct {
+				FieldName string `json:"field_name"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			f.indexes = append(f.indexes, body.FieldName)
+			_, _ = w.Write([]byte(`{"result":true}`))
+
+		case r.Method == http.MethodPut && strings.HasPrefix(pathTail(path), "points"):
+			// Qdrant requires a vector field on every point even when the
+			// collection declares none; decode loosely so the test fails the
+			// same way the server does rather than accepting anything.
+			var raw struct {
+				Points []struct {
+					ID      string          `json:"id"`
+					Vector  json.RawMessage `json:"vector"`
+					Payload Payload         `json:"payload"`
+				} `json:"points"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			for _, p := range raw.Points {
+				if len(p.Vector) == 0 {
+					f.missingVector++
+					w.WriteHeader(http.StatusBadRequest)
+					_, _ = w.Write([]byte(`{"status":{"error":"Format error in JSON body: missing field ` + "`vector`" + `"}}`))
+					return
+				}
+			}
+			var body struct {
+				Points []Point `json:"points"`
+			}
+			data, err := json.Marshal(raw)
+			if err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			if err := json.Unmarshal(data, &body); err != nil {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			f.upsertCalls++
+			f.lastWait = r.URL.Query().Get("wait")
+			for _, p := range body.Points {
+				f.points[p.ID] = p.Payload
+			}
+			_, _ = w.Write([]byte(`{"result":{"status":"completed"}}`))
+
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	})
+
+	f.server = httptest.NewServer(mux)
+	t.Cleanup(f.server.Close)
+	return f
+}
+
+func pathTail(path string) string {
+	if idx := strings.Index(path, "/"); idx >= 0 {
+		return path[idx+1:]
+	}
+	return ""
+}
+
+// claudeFixture writes a Claude transcript under a temporary HOME.
+func claudeFixture(t *testing.T, home, id string, messages ...string) {
+	t.Helper()
+	dir := filepath.Join(home, ".claude/projects/-tmp")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var lines strings.Builder
+	for i, message := range messages {
+		role := "user"
+		if i%2 == 1 {
+			role = "assistant"
+		}
+		line, err := json.Marshal(map[string]any{
+			"type":      role,
+			"cwd":       "/tmp/project",
+			"timestamp": "2026-09-27T04:00:0" + strconv.Itoa(i%10) + "Z",
+			"message":   map[string]any{"role": role, "content": message},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		lines.Write(line)
+		lines.WriteByte('\n')
+	}
+	if err := os.WriteFile(filepath.Join(dir, id+".jsonl"), []byte(lines.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func testConfig(t *testing.T, fake *fakeQdrant) *Config {
+	t.Helper()
+	t.Setenv(EnvQdrantURL, fake.server.URL)
+	t.Setenv(EnvCollection, "test_collection")
+	t.Setenv(EnvHostname, "test-host")
+	t.Setenv(EnvOffsetsFile, filepath.Join(t.TempDir(), "offsets.json"))
+
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return cfg
+}
+
+func TestConfigGate(t *testing.T) {
+	t.Setenv(EnvQdrantURL, "")
+	if Configured() {
+		t.Error("Configured() is true with no endpoint set")
+	}
+	if _, err := LoadConfig(); !errors.Is(err, ErrNotConfigured) {
+		t.Errorf("LoadConfig error = %v, want ErrNotConfigured", err)
+	}
+
+	t.Setenv(EnvQdrantURL, "not-a-url")
+	if _, err := LoadConfig(); err == nil {
+		t.Error("a schemeless endpoint was accepted")
+	}
+
+	t.Setenv(EnvQdrantURL, "http://example.invalid:6333")
+	t.Setenv(EnvCollection, "")
+	cfg, err := LoadConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Collection != DefaultCollection {
+		t.Errorf("default collection = %q, want %q", cfg.Collection, DefaultCollection)
+	}
+	// The default must not be the collection the retired daemon filled with
+	// zero vectors, which would reject payload-only points.
+	if cfg.Collection == "ai_history" {
+		t.Error("default collection collides with the legacy vector collection")
+	}
+}
+
+func TestIngestPublishesAndSkipsUnchanged(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	claudeFixture(t, home, "11111111-1111-4111-8111-111111111111", "first question", "first answer")
+
+	fake := newFakeQdrant(t)
+	cfg := testConfig(t, fake)
+
+	result, err := Run(context.Background(), cfg, Options{Provider: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Published != 1 || result.Points != 2 {
+		t.Fatalf("first pass published %d conversations / %d points, want 1/2 (%+v)", result.Published, result.Points, result)
+	}
+	if !fake.created {
+		t.Error("collection was not created")
+	}
+	if len(fake.indexes) != len(payloadIndexes) {
+		t.Errorf("created %d payload indexes, want %d", len(fake.indexes), len(payloadIndexes))
+	}
+	if fake.missingVector > 0 {
+		t.Errorf("%d upserts omitted the vector field Qdrant requires", fake.missingVector)
+	}
+	if len(fake.badQuery) > 0 {
+		t.Errorf("query parameters were escaped into the request path: %v", fake.badQuery)
+	}
+	if fake.lastWait != "true" {
+		t.Errorf("wait query parameter = %q, want \"true\"", fake.lastWait)
+	}
+
+	// A second pass over unchanged data must not re-send anything.
+	callsAfterFirst := fake.upsertCalls
+	second, err := Run(context.Background(), cfg, Options{Provider: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Published != 0 || second.Skipped != 1 {
+		t.Errorf("second pass published %d / skipped %d, want 0/1", second.Published, second.Skipped)
+	}
+	if fake.upsertCalls != callsAfterFirst {
+		t.Errorf("unchanged conversation was re-sent (%d upserts, was %d)", fake.upsertCalls, callsAfterFirst)
+	}
+
+	// --force republishes regardless of the offset store.
+	forced, err := Run(context.Background(), cfg, Options{Provider: "claude", Force: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if forced.Published != 1 {
+		t.Errorf("--force published %d, want 1", forced.Published)
+	}
+}
+
+// Point IDs must be stable so that re-ingesting updates a turn in place. The
+// retired daemon hashed the timestamp into the ID, so any reparse duplicated it.
+func TestPointIDsAreStableAcrossRuns(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	claudeFixture(t, home, "22222222-2222-4222-8222-222222222222", "hello", "world")
+
+	fake := newFakeQdrant(t)
+	cfg := testConfig(t, fake)
+
+	if _, err := Run(context.Background(), cfg, Options{Provider: "claude", Force: true}); err != nil {
+		t.Fatal(err)
+	}
+	afterFirst := len(fake.points)
+
+	if _, err := Run(context.Background(), cfg, Options{Provider: "claude", Force: true}); err != nil {
+		t.Fatal(err)
+	}
+	if len(fake.points) != afterFirst {
+		t.Errorf("re-ingesting created %d points, want a stable %d", len(fake.points), afterFirst)
+	}
+
+	for _, payload := range fake.points {
+		if payload.Hostname != "test-host" {
+			t.Errorf("hostname = %q, want the configured override", payload.Hostname)
+		}
+		if payload.ProjectPath != "/tmp/project" {
+			t.Errorf("project_path = %q, want the conversation's workspace", payload.ProjectPath)
+		}
+		if payload.SessionID == "" || payload.Content == "" {
+			t.Errorf("incomplete payload: %+v", payload)
+		}
+	}
+}
+
+func TestDryRunWritesNothing(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	claudeFixture(t, home, "33333333-3333-4333-8333-333333333333", "question", "answer")
+
+	fake := newFakeQdrant(t)
+	cfg := testConfig(t, fake)
+
+	result, err := Run(context.Background(), cfg, Options{Provider: "claude", DryRun: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Points != 2 {
+		t.Errorf("dry run counted %d points, want 2", result.Points)
+	}
+	if fake.upsertCalls != 0 || fake.created {
+		t.Error("dry run contacted the collection")
+	}
+	if _, err := os.Stat(cfg.OffsetsFile); err == nil {
+		t.Error("dry run wrote the offset store")
+	}
+}
+
+// Writing payload-only points into a collection that declares vectors fails at
+// the server; refuse up front with an explanation instead.
+func TestRefusesCollectionThatDeclaresVectors(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	claudeFixture(t, home, "44444444-4444-4444-8444-444444444444", "hi")
+
+	fake := newFakeQdrant(t)
+	fake.exists = true
+	fake.vectors = true
+	cfg := testConfig(t, fake)
+
+	_, err := Run(context.Background(), cfg, Options{Provider: "claude"})
+	if err == nil {
+		t.Fatal("writing into a vector collection was allowed")
+	}
+	if !strings.Contains(err.Error(), "declares vectors") || !strings.Contains(err.Error(), EnvCollection) {
+		t.Errorf("error does not explain the fix: %v", err)
+	}
+}
+
+func TestStatusReportsTrackedAndRemoteState(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	claudeFixture(t, home, "55555555-5555-4555-8555-555555555555", "q", "a")
+
+	fake := newFakeQdrant(t)
+	cfg := testConfig(t, fake)
+	if _, err := Run(context.Background(), cfg, Options{Provider: "claude"}); err != nil {
+		t.Fatal(err)
+	}
+
+	status := GetStatus(context.Background(), cfg)
+	if !status.Reachable || status.Error != "" {
+		t.Fatalf("status not reachable: %+v", status)
+	}
+	if status.TrackedLocal != 1 || status.TrackedPoints != 2 {
+		t.Errorf("tracked %d conversations / %d points, want 1/2", status.TrackedLocal, status.TrackedPoints)
+	}
+	if status.RemotePoints != 2 {
+		t.Errorf("remote points = %d, want 2", status.RemotePoints)
+	}
+	if status.LastIngestAt == "" {
+		t.Error("status did not record when the last ingest ran")
+	}
+}
+
+func TestWatchRootsComeFromProviders(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	claudeFixture(t, home, "66666666-6666-4666-8666-666666666666", "hi")
+
+	roots, err := WatchRoots("claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(roots) == 0 {
+		t.Fatal("no transcript roots reported for a provider with a transcript on disk")
+	}
+	want := filepath.Join(home, ".claude/projects")
+	if roots[0] != want {
+		t.Errorf("root = %q, want %q", roots[0], want)
+	}
+
+	// A provider must not report a directory that does not exist.
+	for _, root := range roots {
+		if _, err := os.Stat(root); err != nil {
+			t.Errorf("reported a missing root %q", root)
+		}
+	}
+}

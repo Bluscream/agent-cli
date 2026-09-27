@@ -238,6 +238,46 @@ ai limits --provider codex
 ai limits --output json
 ```
 
+### 16. `ai ingest`
+Publishes conversation transcripts from every provider into a Qdrant
+collection, so history stays searchable from other machines.
+
+**Opt-in.** Ingestion runs only when `AI_INGEST_QDRANT_URL` is set; with it
+unset the command prints how to configure it and exits successfully, so a
+machine with no Qdrant is a normal state rather than an error.
+
+```bash
+ai ingest                      # publish everything that changed
+ai ingest --dry-run            # report what would be published, write nothing
+ai ingest --provider claude    # one provider only
+ai ingest --since 2w           # only recently updated conversations
+ai ingest --force              # republish regardless of the offset store
+ai ingest --watch              # keep running, publishing as transcripts change
+ai ingest status               # destination health and local offset state
+```
+
+| Variable | Purpose |
+| :--- | :--- |
+| `AI_INGEST_QDRANT_URL` | Qdrant endpoint. **Required** — also the on/off switch. |
+| `AI_INGEST_COLLECTION` | Collection name (default `ai_history_v2`). |
+| `AI_INGEST_QDRANT_API_KEY` | Sent as the `api-key` header when set. |
+| `AI_INGEST_HOSTNAME` | Recorded on each point; defaults to the system hostname. |
+| `AI_INGEST_OFFSETS` | Offset store path (default `~/.cache/agent-cli/ingest-offsets.json`). |
+
+On a systemd machine these belong in `~/.config/environment.d/`.
+
+**Points are payload-only — no embeddings are computed and no vectors are
+stored.** Search the result with Qdrant's payload filters (`content` and
+`title` carry full-text indexes; `session_id`, `provider`, `hostname`,
+`project_path`, `role` and `tool_name` are keyword indexes). `ai ingest`
+refuses to write into a collection that declares vectors, because its points
+carry none.
+
+Conversations unchanged since the last pass are skipped, so re-running is
+cheap. Point IDs are derived from provider, session and step index, so
+re-ingesting a conversation updates its turns in place rather than
+duplicating them.
+
 ---
 
 ---

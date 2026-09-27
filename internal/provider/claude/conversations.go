@@ -563,3 +563,26 @@ func extractPlanTasks(md string) []string {
 	}
 	return tasks
 }
+
+// TranscriptRoots implements provider.TranscriptRooter.
+func (p *ClaudeProvider) TranscriptRoots() []string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil
+	}
+	return existingDirs(
+		filepath.Join(home, ".claude/projects"),
+		filepath.Join(home, ".config/Claude/claude-code-sessions"),
+	)
+}
+
+// existingDirs keeps only the paths that are directories today.
+func existingDirs(paths ...string) []string {
+	var found []string
+	for _, path := range paths {
+		if fi, err := os.Stat(path); err == nil && fi.IsDir() {
+			found = append(found, path)
+		}
+	}
+	return found
+}

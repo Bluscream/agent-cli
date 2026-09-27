@@ -364,3 +364,16 @@ func readRolloutTurns(path string, limit int) ([]provider.TurnInfo, int) {
 
 	return turns, step
 }
+
+// TranscriptRoots implements provider.TranscriptRooter.
+func (p *CodexProvider) TranscriptRoots() []string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil
+	}
+	sessions := filepath.Join(home, ".codex/sessions")
+	if fi, err := os.Stat(sessions); err == nil && fi.IsDir() {
+		return []string{sessions}
+	}
+	return nil
+}

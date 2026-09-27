@@ -329,3 +329,19 @@ func extractPlanTasks(md string) []string {
 	}
 	return tasks
 }
+
+// TranscriptRoots implements provider.TranscriptRooter.
+func (p *AntigravityProvider) TranscriptRoots() []string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil
+	}
+	var roots []string
+	for _, base := range []string{".gemini/antigravity-ide/brain", ".gemini/antigravity/brain"} {
+		path := filepath.Join(home, base)
+		if fi, err := os.Stat(path); err == nil && fi.IsDir() {
+			roots = append(roots, path)
+		}
+	}
+	return roots
+}
