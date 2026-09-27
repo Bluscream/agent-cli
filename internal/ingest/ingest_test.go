@@ -179,116 +179,120 @@ func newFakeQdrant(t *testing.T) *fakeQdrant {
 	f := &fakeQdrant{points: map[string]Payload{}}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/collections/", func(w http.ResponseWriter, r *http.Request) {
-		f.mu.Lock()
-		defer f.mu.Unlock()
-		path := strings.TrimPrefix(r.URL.Path, "/collections/")
-
-		// url.JoinPath escapes a "?" inside a path element, which silently
-		// turns "index?wait=true" into a 404 path. Record any request whose
-		// query leaked into the path so a test can fail on it.
-		if strings.ContainsAny(r.URL.Path, "?%") {
-			f.badQuery = append(f.badQuery, r.URL.Path)
-		}
-
-		switch {
-		case r.Method == http.MethodGet && !strings.Contains(path, "/"):
-			if !f.exists && !f.created {
-				w.WriteHeader(http.StatusNotFound)
-				_, _ = w.Write([]byte(`{"status":{"error":"Not Found"}}`))
-				return
-			}
-			vectors := "{}"
-			if f.vectors {
-				vectors = `{"size":1536,"distance":"Cosine"}`
-			}
-			_, _ = w.Write([]byte(`{"result":{"status":"green","points_count":` +
-				strconv.Itoa(len(f.points)) + `,"config":{"params":{"vectors":` + vectors + `}}}}`))
-
-		case r.Method == http.MethodPut && !strings.Contains(path, "/"):
-			f.created = true
-			_, _ = w.Write([]byte(`{"result":true}`))
-
-		case r.Method == http.MethodPut && strings.HasPrefix(pathTail(path), "index"):
-			var body struct {
-				FieldName string `json:"field_name"`
-			}
-			_ = json.NewDecoder(r.Body).Decode(&body)
-			f.indexes = append(f.indexes, body.FieldName)
-			_, _ = w.Write([]byte(`{"result":true}`))
-
-		case r.Method == http.MethodPost && pathTail(path) == "points/scroll":
-			var req struct {
-				Filter  map[string]any `json:"filter"`
-				Limit   int            `json:"limit"`
-				OrderBy map[string]any `json:"order_by"`
-			}
-			_ = json.NewDecoder(r.Body).Decode(&req)
-			f.scrollFilters = append(f.scrollFilters, req.Filter)
-			f.writeScroll(w, req.Limit, req.Filter, req.OrderBy)
-
-		case r.Method == http.MethodPost && pathTail(path) == "facet":
-			sessions := map[string]struct{}{}
-			for _, payload := range f.points {
-				sessions[payload.SessionID] = struct{}{}
-			}
-			var hits []string
-			for session := range sessions {
-				hits = append(hits, fmt.Sprintf(`{"value":%q,"count":1}`, session))
-			}
-			sort.Strings(hits)
-			_, _ = w.Write([]byte(`{"result":{"hits":[` + strings.Join(hits, ",") + `]}}`))
-
-		case r.Method == http.MethodPut && strings.HasPrefix(pathTail(path), "points"):
-			// Qdrant requires a vector field on every point even when the
-			// collection declares none; decode loosely so the test fails the
-			// same way the server does rather than accepting anything.
-			var raw struct {
-				Points []struct {
-					ID      string          `json:"id"`
-					Vector  json.RawMessage `json:"vector"`
-					Payload Payload         `json:"payload"`
-				} `json:"points"`
-			}
-			if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
-				w.WriteHeader(http.StatusBadRequest)
-				return
-			}
-			for _, p := range raw.Points {
-				if len(p.Vector) == 0 {
-					f.missingVector++
-					w.WriteHeader(http.StatusBadRequest)
-					_, _ = w.Write([]byte(`{"status":{"error":"Format error in JSON body: missing field ` + "`vector`" + `"}}`))
-					return
-				}
-			}
-			var body struct {
-				Points []Point `json:"points"`
-			}
-			data, err := json.Marshal(raw)
-			if err != nil {
-				w.WriteHeader(http.StatusBadRequest)
-				return
-			}
-			if err := json.Unmarshal(data, &body); err != nil {
-				w.WriteHeader(http.StatusBadRequest)
-				return
-			}
-			f.upsertCalls++
-			f.lastWait = r.URL.Query().Get("wait")
-			for _, p := range body.Points {
-				f.points[p.ID] = p.Payload
-			}
-			_, _ = w.Write([]byte(`{"result":{"status":"completed"}}`))
-
-		default:
-			w.WriteHeader(http.StatusNotFound)
-		}
-	})
-
+	mux.HandleFunc("/collections/", f.handle)
 	f.server = httptest.NewServer(mux)
 	t.Cleanup(f.server.Close)
 	return f
+}
+
+// handle dispatches the Qdrant endpoints the package uses.
+func (f *fakeQdrant) handle(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	path := strings.TrimPrefix(r.URL.Path, "/collections/")
+
+	// url.JoinPath escapes a "?" inside a path element, which silently turns
+	// "index?wait=true" into a 404 path. Record any request whose query leaked
+	// into the path so a test can fail on it.
+	if strings.ContainsAny(r.URL.Path, "?%") {
+		f.badQuery = append(f.badQuery, r.URL.Path)
+	}
+
+	switch {
+	case r.Method == http.MethodGet && !strings.Contains(path, "/"):
+		f.describeCollection(w)
+	case r.Method == http.MethodPut && !strings.Contains(path, "/"):
+		f.created = true
+		_, _ = w.Write([]byte(`{"result":true}`))
+	case r.Method == http.MethodPut && strings.HasPrefix(pathTail(path), "index"):
+		f.addIndex(w, r)
+	case r.Method == http.MethodPost && pathTail(path) == "points/scroll":
+		f.scroll(w, r)
+	case r.Method == http.MethodPost && pathTail(path) == "facet":
+		f.facet(w)
+	case r.Method == http.MethodPut && strings.HasPrefix(pathTail(path), "points"):
+		f.upsert(w, r)
+	default:
+		w.WriteHeader(http.StatusNotFound)
+	}
+}
+
+func (f *fakeQdrant) describeCollection(w http.ResponseWriter) {
+	if !f.exists && !f.created {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"status":{"error":"Not Found"}}`))
+		return
+	}
+	vectors := "{}"
+	if f.vectors {
+		vectors = `{"size":1536,"distance":"Cosine"}`
+	}
+	_, _ = w.Write([]byte(`{"result":{"status":"green","points_count":` +
+		strconv.Itoa(len(f.points)) + `,"config":{"params":{"vectors":` + vectors + `}}}}`))
+}
+
+func (f *fakeQdrant) addIndex(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		FieldName string `json:"field_name"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+	f.indexes = append(f.indexes, body.FieldName)
+	_, _ = w.Write([]byte(`{"result":true}`))
+}
+
+func (f *fakeQdrant) scroll(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Filter  map[string]any `json:"filter"`
+		Limit   int            `json:"limit"`
+		OrderBy map[string]any `json:"order_by"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	f.scrollFilters = append(f.scrollFilters, req.Filter)
+	f.writeScroll(w, req.Limit, req.Filter, req.OrderBy)
+}
+
+func (f *fakeQdrant) facet(w http.ResponseWriter) {
+	sessions := map[string]struct{}{}
+	for _, payload := range f.points {
+		sessions[payload.SessionID] = struct{}{}
+	}
+	var hits []string
+	for session := range sessions {
+		hits = append(hits, fmt.Sprintf(`{"value":%q,"count":1}`, session))
+	}
+	sort.Strings(hits)
+	_, _ = w.Write([]byte(`{"result":{"hits":[` + strings.Join(hits, ",") + `]}}`))
+}
+
+// upsert mirrors Qdrant's rejection of a point with no vector field, even when
+// the collection declares none.
+func (f *fakeQdrant) upsert(w http.ResponseWriter, r *http.Request) {
+	var raw struct {
+		Points []struct {
+			ID      string          `json:"id"`
+			Vector  json.RawMessage `json:"vector"`
+			Payload Payload         `json:"payload"`
+		} `json:"points"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&raw); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	for _, p := range raw.Points {
+		if len(p.Vector) == 0 {
+			f.missingVector++
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"status":{"error":"Format error in JSON body: missing field ` + "`vector`" + `"}}`))
+			return
+		}
+	}
+
+	f.upsertCalls++
+	f.lastWait = r.URL.Query().Get("wait")
+	for _, p := range raw.Points {
+		f.points[p.ID] = p.Payload
+	}
+	_, _ = w.Write([]byte(`{"result":{"status":"completed"}}`))
 }
 
 func pathTail(path string) string {

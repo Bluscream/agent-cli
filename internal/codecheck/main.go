@@ -1,75 +1,78 @@
-// Command codecheck enforces the repository's physical-line limits.
+// Command codecheck enforces the repository's physical-line limits: 1000 lines
+// per code file and 100 lines per function, including function literals.
+//
+// Functions listed in .codecheck-baseline are excused, so the limits can be
+// enforced from here on without one sweeping refactor of code nobody is
+// touching. That list may only shrink: an unlisted breach fails, and so does a
+// listed entry that no longer breaches anything.
 package main
 
 import (
 	"fmt"
-	"go/ast"
-	"go/parser"
-	"go/token"
-	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
+	"sort"
 )
 
 func main() {
-	failed := false
-	err := filepath.WalkDir(".", func(path string, entry fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if entry.IsDir() {
-			if entry.Name() == ".git" || entry.Name() == "bin" || entry.Name() == ".references" {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-		switch filepath.Ext(path) {
-		case ".go", ".py", ".sh", ".js", ".ts", ".tsx", ".jsx", ".rs", ".c", ".cpp", ".h":
-		default:
-			return nil
-		}
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
-		count := strings.Count(strings.TrimSuffix(string(data), "\n"), "\n") + 1
-		if count > 1000 {
-			fmt.Printf("%s: code file has %d lines (maximum 1000); split it\n", path, count)
-			failed = true
-		}
-		if filepath.Ext(path) != ".go" {
-			return nil
-		}
-		fset := token.NewFileSet()
-		file, err := parser.ParseFile(fset, path, data, 0)
-		if err != nil {
-			return err
-		}
-		ast.Inspect(file, func(node ast.Node) bool {
-			var name string
-			switch n := node.(type) {
-			case *ast.FuncDecl:
-				name = n.Name.Name
-			case *ast.FuncLit:
-				name = "function literal"
-			default:
-				return true
-			}
-			start, end := fset.Position(node.Pos()).Line, fset.Position(node.End()).Line
-			if end-start+1 > 100 {
-				fmt.Printf("%s:%d: %s has %d lines (maximum 100); split it\n", path, start, name, end-start+1)
-				failed = true
-			}
-			return true
-		})
-		return nil
-	})
-	if err != nil {
+	if err := run("."); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
-	if failed {
-		os.Exit(1)
+}
+
+func run(root string) error {
+	violations, notices, err := Scan(root)
+	if err != nil {
+		return err
 	}
+	// Resolve the baseline against the scanned tree, not the process's working
+	// directory, so violation paths and baseline keys share one root.
+	baseline, err := LoadBaseline(filepath.Join(root, BaselineFile))
+	if err != nil {
+		return err
+	}
+
+	for _, notice := range notices {
+		fmt.Println(notice)
+	}
+
+	report := baseline.Check(violations)
+	if report.OK() {
+		fmt.Printf("Size limits satisfied: %d baselined oversized function(s), none new.\n", len(violations))
+		return nil
+	}
+
+	grown := map[string]bool{}
+	for _, violation := range report.Grown {
+		grown[violation.Key()] = true
+	}
+
+	if len(report.New) > 0 {
+		sort.Slice(report.New, func(i, j int) bool {
+			if report.New[i].Path != report.New[j].Path {
+				return report.New[i].Path < report.New[j].Path
+			}
+			return report.New[i].Line < report.New[j].Line
+		})
+		fmt.Printf("\n%d size-limit violation(s) not covered by the baseline:\n", len(report.New))
+		for _, violation := range report.New {
+			if grown[violation.Key()] {
+				fmt.Printf("  %s (baselined at %d lines — it grew; split it rather than raising the entry)\n",
+					violation, baseline.Allowance(violation.Key()))
+				continue
+			}
+			fmt.Printf("  %s\n", violation)
+		}
+		fmt.Printf("\nSplit them. Only add an entry to %s with a reason it cannot be split now.\n", BaselineFile)
+	}
+
+	if len(report.Stale) > 0 {
+		fmt.Printf("\n%d stale %s entry/entries — that code is within limits now, so delete these lines:\n",
+			len(report.Stale), BaselineFile)
+		for _, key := range report.Stale {
+			fmt.Printf("  %s\n", key)
+		}
+	}
+	return fmt.Errorf("size limits not satisfied")
 }

@@ -98,6 +98,7 @@ run whitespace git diff --check
 run modules go mod verify
 run vet go vet ./...
 run staticcheck go run honnef.co/go/tools/cmd/staticcheck@v0.8.1 ./...
+run size-limits go run ./internal/codecheck
 run race-tests host_tests release
 run debug-tests host_tests debug
 run release-build go build -trimpath -ldflags "-s -w -X agentcli.local/ai/internal/cli.Version=$version" -o "$work/ai" ./cmd/ai

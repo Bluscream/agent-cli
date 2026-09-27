@@ -1,0 +1,48 @@
+# Oversized functions that predate the size check, with the size each had when
+# recorded. codecheck excuses these so the 100-line function limit can be
+# enforced from here on without one sweeping refactor of code nobody is touching.
+#
+# This list may only ever shrink:
+#   - a function not listed here fails the gate
+#   - a listed function that grew past its recorded size fails, so an entry is
+#     never a licence to keep adding to it
+#   - a listed function that now fits fails as stale, so the entry gets deleted
+#     when the code is finally split
+#
+# Add an entry only with a reason it cannot be split now. Most of these are
+# cobra command constructors whose RunE closure holds the whole command body;
+# splitting them is a mechanical but separate change.
+internal/cli/account.go:accountCommand 151
+internal/cli/audit.go:handoffCommand 152
+internal/cli/audit.go:function literal 130
+internal/cli/conversation.go:conversationCommand 148
+internal/cli/conversation.go:function literal 131
+internal/cli/history.go:historyCommand 181
+internal/cli/history.go:function literal 157
+internal/cli/id.go:idCommand 341
+internal/cli/id.go:function literal 321
+internal/cli/lasts.go:lastsCommand 151
+internal/cli/lasts.go:function literal 129
+internal/cli/limits.go:runLimits 116
+internal/cli/log.go:logCommand 226
+internal/cli/log.go:function literal 177
+internal/cli/mcp.go:mcpCommand 136
+internal/cli/memory.go:memoryCommand 192
+internal/cli/memory.go:function literal 151
+internal/cli/models.go:runModels 105
+internal/cli/plugins.go:pluginsCommand 148
+internal/cli/search.go:searchCommand 173
+internal/cli/search.go:function literal 122
+internal/cli/skill.go:skillCommand 137
+internal/cli/skill.go:function literal 102
+internal/cli/status.go:statusCommand 125
+internal/cli/status.go:function literal 114
+internal/provider/antigravity/limits.go:GetLimits 145
+internal/provider/antigravity/recovery.go:Recover 150
+internal/provider/claude/account.go:SaveProfile 126
+internal/provider/claude/conversations.go:ListConversations 121
+internal/provider/claude/conversations.go:parseClaudeTranscript 109
+internal/provider/claude/conversations.go:readClaudeTurns 156
+internal/provider/claude/models.go:GetModels 135
+internal/provider/codex/conversations.go:readRolloutTurns 143
+internal/search/search.go:Execute 270

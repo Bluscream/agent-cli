@@ -1,7 +1,7 @@
 PREFIX ?= $(HOME)/.local
 BINDIR ?= $(PREFIX)/bin
 
-.PHONY: all build build-debug test fmt fmt-check lint staticcheck check install clean
+.PHONY: all build build-debug test fmt fmt-check lint staticcheck size-limits check install clean
 
 all: build
 
@@ -28,7 +28,10 @@ lint:
 staticcheck:
 	go run honnef.co/go/tools/cmd/staticcheck@v0.8.1 ./...
 
-check: fmt-check lint test build build-debug
+size-limits:
+	go run ./internal/codecheck
+
+check: fmt-check lint size-limits test build build-debug
 	@echo "All meta checks, tests, release and debug builds passed."
 
 install:
