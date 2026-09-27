@@ -79,8 +79,10 @@ Examples:
 				}
 				opts.Since = since
 			}
+			var progress *ingestProgress
 			if !o.isJSON() {
-				opts.Progress = cmd.OutOrStdout()
+				progress = newIngestProgress(cmd.OutOrStdout(), dryRun)
+				opts.OnProgress = progress.Handle
 			}
 
 			if watch {
@@ -92,6 +94,9 @@ Examples:
 			}
 
 			result, err := ingest.Run(cmd.Context(), cfg, opts)
+			if progress != nil {
+				progress.Finish()
+			}
 			if err != nil {
 				return err
 			}
@@ -164,22 +169,56 @@ func renderIngestResult(o *options, out io.Writer, result *ingest.Result) error 
 		return o.printJSON(out, result)
 	}
 
-	verb := "Published"
+	heading := "INGESTED"
 	if result.DryRun {
-		verb = "Would publish"
+		heading = "DRY RUN — NOTHING WRITTEN"
 	}
-	fmt.Fprintf(out, "\n%s %d conversations (%d points) to %s at %s in %s.\n",
-		verb, result.Published, result.Points, result.Collection, result.Endpoint, result.Duration)
-	fmt.Fprintf(out, "Scanned %d, skipped %d unchanged", result.Conversations, result.Skipped)
+	fmt.Fprintf(out, "\n%s\n", bold.Sprint(heading))
+
+	failedCell := fmt.Sprintf("%d", result.Failed)
 	if result.Failed > 0 {
-		fmt.Fprintf(out, ", %s", red.Sprintf("%d failed", result.Failed))
+		failedCell = red.Sprint(failedCell)
 	}
-	fmt.Fprintln(out, ".")
+
+	publishedLabel, pointsLabel := "Published", "Points sent"
+	if result.DryRun {
+		publishedLabel, pointsLabel = "Would publish", "Points to send"
+	}
+
+	rows := [][2]string{
+		kv("Destination", fmt.Sprintf("%s at %s", result.Collection, result.Endpoint)),
+		kv("Scanned", formatCount(result.Conversations)),
+		kv(publishedLabel, formatCount(result.Published)),
+		kv("Skipped (unchanged)", formatCount(result.Skipped)),
+		kv("Failed", failedCell),
+		kv(pointsLabel, formatCount(result.Points)),
+		kv("Duration", result.Duration),
+	}
+	if before, after := result.PointsBefore, result.PointsAfter; before >= 0 && after >= 0 {
+		delta, _ := result.Delta()
+		rows = append(rows, kv("Collection points",
+			fmt.Sprintf("%s → %s (%s)", formatCount(before), formatCount(after), signed(delta))))
+	}
+
+	dt := o.newDetail(out)
+	detailRows(dt, rows...)
+	fmt.Fprintln(out, o.renderTable(dt))
 
 	if result.Failed > 0 {
 		return fmt.Errorf("%d conversations could not be ingested", result.Failed)
 	}
 	return nil
+}
+
+// signed renders a delta with an explicit sign so "no change" is unambiguous.
+func signed(n int64) string {
+	if n > 0 {
+		return "+" + formatCount(n)
+	}
+	if n == 0 {
+		return "no change"
+	}
+	return formatCount(n)
 }
 
 func ingestStatusCommand(o *options) *cobra.Command {
