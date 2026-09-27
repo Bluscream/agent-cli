@@ -63,8 +63,15 @@ ai history --workspace /some/dir # Filter to conversations in a workspace or par
 ai history --since 2w            # Conversations in the last 2 weeks
 ai history --since "1 day"       # Conversations in the last day
 ai history --last                # Only the single most recent session
+ai history -k "vrcnext plugin"   # Titles containing every word, in any order
 ai history --output json
 ```
+
+Titles come from a conversation's opening message, so a subject that never
+reached the title will not be found here — `ai search` reads the transcripts.
+The `MSGS` column shows `-` when the count is unknown: listing deliberately
+stops reading a transcript early, and `ai conversation <id>` reports the exact
+figure.
 
 ### 3. `ai search`
 Universal cross-entity search across conversations, transcripts, memories, and skills with attribution (who, when, where) and context snippets.
@@ -74,8 +81,13 @@ ai search "pkg-manager"
 ai search --text "steam-cli" --workspace "/run/media/system/Data/Projects"
 ai search --pattern "git\s+(commit|push)"
 ai search --type memories "api key"
+ai search "vrcnext plugin" --fuzzy   # Every word, in any order, not one phrase
 ai search "pkg-manager" --output json
 ```
+
+JSON results carry both `entity_id` (the short display ID) and `full_id` (the
+raw conversation ID). Either can be passed straight to `ai log` or
+`ai conversation` — see the note on IDs under `ai id` below.
 
 ### 4. `ai conversation <id>`
 Inspects granular details about a conversation:
@@ -108,8 +120,14 @@ ai log 046f0687
 ai log 046f0687 --tools
 ai log 046f0687 --thinking
 ai log 046f0687 --system
+ai log 046f0687 --grep "one deploy" --context 2   # Only matching turns, plus neighbours
+ai log 046f0687 --grep-pattern "git\s+(commit|push)"
 ai log --last --no-errors
 ```
+
+`--grep` matches turn content, thinking, and tool names case-insensitively;
+`--context`/`-C` adds surrounding turns, and the output reports how many turns
+matched on their own.
 
 ### 7. `ai id <identifier>`
 Generic lookup tool that resolves any short ID or full raw ID to the underlying entity (conversation, memory item, skill, or MCP server).
@@ -119,6 +137,13 @@ ai id 046f0687
 ai id ba07b876
 ai id omni-mcp
 ```
+
+**You rarely need `ai id` just to expand an ID.** Every command that takes a
+conversation ID — `ai log`, `ai conversation`, `ai handoff` — already accepts
+the 8-character short ID, the full raw ID, or a 4+ character prefix of either.
+`ai log 046f0687` and `ai log 046f0687-…-full-uuid` are equivalent. Reach for
+`ai id` when you want to know *what* an unknown identifier refers to, not to
+convert one form into the other.
 
 ### 8. `ai handoff [<id>]` (alias: `ai audit`)
 Produces a self-contained briefing dossier of a conversation for cross-agent auditing and handoffs.
