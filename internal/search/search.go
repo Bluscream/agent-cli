@@ -17,7 +17,8 @@ import (
 type MatchResult struct {
 	Type        string    `json:"type"`                   // "conversation", "memory", "skill"
 	Provider    string    `json:"provider"`               // "antigravity", "claude", "codex"
-	EntityID    string    `json:"entity_id"`              // Full ID or Short ID
+	EntityID    string    `json:"entity_id"`              // Short ID, suitable for display
+	FullID      string    `json:"full_id,omitempty"`      // Raw provider ID, as `ai log`/`ai conversation` store it
 	EntityTitle string    `json:"entity_title,omitempty"` // Title of conversation/memory/skill
 	Workspace   string    `json:"workspace,omitempty"`    // Workspace directory if applicable
 	Author      string    `json:"author,omitempty"`       // "user", "assistant", "system", etc.
@@ -39,17 +40,43 @@ type Options struct {
 	CaseSensitive bool
 	TitleOnly     bool // only match against conversation/entity titles, skip transcript loading
 	Unique        bool // emit only the first match per (provider, entity_id) pair
+	Fuzzy         bool // match all whitespace-separated terms in any order, rather than as one phrase
 }
 
 // Matcher encapsulates string or regex matching and context snippet generation.
 type Matcher struct {
-	isRegex bool
-	re      *regexp.Regexp
-	needle  string
+	isRegex       bool
+	re            *regexp.Regexp
+	needle        string
+	terms         []string // fuzzy mode: every term must be present, in any order
+	caseSensitive bool
 }
 
-// NewMatcher builds a matcher from text or regex pattern.
-func NewMatcher(text, pattern string, caseSensitive bool) (*Matcher, error) {
+// MatchTerms reports whether every whitespace-separated term in query appears
+// somewhere in text, in any order. An empty query matches nothing.
+func MatchTerms(text, query string, caseSensitive bool) bool {
+	terms := strings.Fields(query)
+	if len(terms) == 0 {
+		return false
+	}
+	if !caseSensitive {
+		text = strings.ToLower(text)
+	}
+	for _, term := range terms {
+		if !caseSensitive {
+			term = strings.ToLower(term)
+		}
+		if !strings.Contains(text, term) {
+			return false
+		}
+	}
+	return true
+}
+
+// NewMatcher builds a matcher from text or regex pattern. In fuzzy mode a
+// multi-term text query matches when every term is present in any order,
+// which finds titles that a phrase search would miss.
+func NewMatcher(text, pattern string, caseSensitive, fuzzy bool) (*Matcher, error) {
 	if pattern != "" {
 		expr := pattern
 		if !caseSensitive && !strings.HasPrefix(expr, "(?i)") {
@@ -59,18 +86,24 @@ func NewMatcher(text, pattern string, caseSensitive bool) (*Matcher, error) {
 		if err != nil {
 			return nil, fmt.Errorf("invalid regex pattern: %w", err)
 		}
-		return &Matcher{isRegex: true, re: re}, nil
+		return &Matcher{isRegex: true, re: re, caseSensitive: caseSensitive}, nil
 	}
 
 	if text == "" {
 		return nil, fmt.Errorf("either search text or regex pattern must be provided")
 	}
 
-	needle := text
-	if !caseSensitive {
-		needle = strings.ToLower(text)
+	m := &Matcher{caseSensitive: caseSensitive}
+	if fuzzy {
+		if terms := strings.Fields(text); len(terms) > 1 {
+			m.terms = terms
+		}
 	}
-	return &Matcher{isRegex: false, needle: needle}, nil
+	m.needle = text
+	if !caseSensitive {
+		m.needle = strings.ToLower(text)
+	}
+	return m, nil
 }
 
 // QuickBytesMatch quickly tests whether raw byte data could match.
@@ -78,12 +111,42 @@ func (m *Matcher) QuickBytesMatch(data []byte) bool {
 	if m.isRegex {
 		return m.re.Match(data)
 	}
-	// Case-insensitive ASCII substring search
+	if len(m.terms) > 0 {
+		return MatchTerms(string(data), strings.Join(m.terms, " "), m.caseSensitive)
+	}
 	needle := []byte(m.needle)
 	if len(needle) == 0 {
 		return false
 	}
+	// m.needle is already lowered unless the search is case-sensitive, so the
+	// haystack may only be lowered in that same case.
+	if m.caseSensitive {
+		return bytes.Contains(data, needle)
+	}
 	return bytes.Contains(bytes.ToLower(data), needle)
+}
+
+// firstTermSpan returns the span of the earliest-occurring fuzzy term, so the
+// snippet is anchored on real matching text rather than the start of content.
+func (m *Matcher) firstTermSpan(content string) (int, int, bool) {
+	haystack := content
+	if !m.caseSensitive {
+		haystack = strings.ToLower(content)
+	}
+	start, end := -1, -1
+	for _, term := range m.terms {
+		if !m.caseSensitive {
+			term = strings.ToLower(term)
+		}
+		idx := strings.Index(haystack, term)
+		if idx == -1 {
+			return 0, 0, false
+		}
+		if start == -1 || idx < start {
+			start, end = idx, idx+len(term)
+		}
+	}
+	return start, end, start != -1
 }
 
 // FindMatch tests whether target matches and returns a snippet around the match.
@@ -93,14 +156,25 @@ func (m *Matcher) FindMatch(content string, maxSnippetLen int) (bool, string) {
 	}
 
 	var start, end int
-	if m.isRegex {
+	switch {
+	case m.isRegex:
 		loc := m.re.FindStringIndex(content)
 		if loc == nil {
 			return false, ""
 		}
 		start, end = loc[0], loc[1]
-	} else {
-		idx := strings.Index(strings.ToLower(content), m.needle)
+	case len(m.terms) > 0:
+		s, e, ok := m.firstTermSpan(content)
+		if !ok {
+			return false, ""
+		}
+		start, end = s, e
+	default:
+		haystack := content
+		if !m.caseSensitive {
+			haystack = strings.ToLower(content)
+		}
+		idx := strings.Index(haystack, m.needle)
 		if idx == -1 {
 			return false, ""
 		}
@@ -150,7 +224,7 @@ func authorMatches(role, filter string) bool {
 
 // Execute performs the search across conversations, memories, and skills according to Options.
 func Execute(opts Options) ([]MatchResult, error) {
-	matcher, err := NewMatcher(opts.Text, opts.Pattern, opts.CaseSensitive)
+	matcher, err := NewMatcher(opts.Text, opts.Pattern, opts.CaseSensitive, opts.Fuzzy)
 	if err != nil {
 		return nil, err
 	}
@@ -230,6 +304,7 @@ func Execute(opts Options) ([]MatchResult, error) {
 						Type:        "conversation",
 						Provider:    c.Provider,
 						EntityID:    idutil.ShortID(c.ID),
+						FullID:      c.ID,
 						EntityTitle: c.Title,
 						Workspace:   strings.TrimPrefix(c.WorkspaceDir, "file://"),
 						Author:      "title",
@@ -273,6 +348,7 @@ func Execute(opts Options) ([]MatchResult, error) {
 							Type:        "conversation",
 							Provider:    c.Provider,
 							EntityID:    idutil.ShortID(c.ID),
+							FullID:      c.ID,
 							EntityTitle: c.Title,
 							Workspace:   strings.TrimPrefix(c.WorkspaceDir, "file://"),
 							Author:      t.Role,
@@ -292,6 +368,7 @@ func Execute(opts Options) ([]MatchResult, error) {
 								Type:        "conversation",
 								Provider:    c.Provider,
 								EntityID:    idutil.ShortID(c.ID),
+								FullID:      c.ID,
 								EntityTitle: c.Title,
 								Workspace:   strings.TrimPrefix(c.WorkspaceDir, "file://"),
 								Author:      "thinking",
@@ -323,6 +400,7 @@ func Execute(opts Options) ([]MatchResult, error) {
 						Type:        "memory",
 						Provider:    m.Provider,
 						EntityID:    idutil.ShortID(m.ID),
+						FullID:      m.ID,
 						EntityTitle: m.Title,
 						Author:      "memory",
 						Timestamp:   m.UpdatedAt,
@@ -344,6 +422,7 @@ func Execute(opts Options) ([]MatchResult, error) {
 						Type:        "memory",
 						Provider:    m.Provider,
 						EntityID:    idutil.ShortID(m.ID),
+						FullID:      m.ID,
 						EntityTitle: m.Title,
 						Author:      "memory",
 						Timestamp:   m.UpdatedAt,

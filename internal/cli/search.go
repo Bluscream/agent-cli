@@ -23,6 +23,7 @@ func searchCommand(o *options) *cobra.Command {
 		caseSensitive   bool
 		titleOnly       bool
 		unique          bool
+		fuzzy           bool
 	)
 
 	cmd := &cobra.Command{
@@ -39,7 +40,8 @@ Examples:
   ai search --text "docker" --output json
   ai search "quest" --author user --unique
   ai search "dayz" --title-only
-  ai search "dayz quest" --since 2w --author user`,
+  ai search "dayz quest" --since 2w --author user
+  ai search "vrcnext plugin" --fuzzy --title-only`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) > 0 && queryText == "" && queryPattern == "" {
 				queryText = strings.Join(args, " ")
@@ -75,6 +77,7 @@ Examples:
 				CaseSensitive: caseSensitive,
 				TitleOnly:     titleOnly,
 				Unique:        unique,
+				Fuzzy:         fuzzy,
 			})
 			if err != nil {
 				return err
@@ -152,6 +155,7 @@ Examples:
 	cmd.Flags().BoolVarP(&caseSensitive, "case-sensitive", "s", false, "Enable case-sensitive matching")
 	cmd.Flags().BoolVar(&titleOnly, "title-only", false, "Match only against titles, skip transcript loading (fast)")
 	cmd.Flags().BoolVarP(&unique, "unique", "u", false, "Emit only the first match per conversation (deduplicate)")
+	cmd.Flags().BoolVar(&fuzzy, "fuzzy", false, "Match every word of the query in any order, rather than as one phrase")
 
 	return cmd
 }
