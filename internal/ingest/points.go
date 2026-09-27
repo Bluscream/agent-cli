@@ -42,8 +42,18 @@ const pointNamespace = "agentcli.local/ai/ingest"
 // pointID derives a stable RFC 9562 version 8 UUID from the turn's identity.
 // The timestamp is deliberately excluded: re-ingesting a turn whose timestamp
 // parsed differently must update the existing point rather than duplicate it.
-func pointID(providerName, sessionID string, stepIndex int) string {
-	sum := sha256.Sum256([]byte(fmt.Sprintf("%s|%s|%s|%d", pointNamespace, providerName, sessionID, stepIndex)))
+//
+// ordinal distinguishes turns that share a step index — Antigravity emits a
+// planner step's narrative and each of its tool calls as separate turns under
+// one step_index, and keying on the step alone silently overwrote all but the
+// last. It is omitted at zero so the common one-turn-per-step identity is
+// unchanged, and only the turns that were being lost get new ids.
+func pointID(providerName, sessionID string, stepIndex, ordinal int) string {
+	identity := fmt.Sprintf("%s|%s|%s|%d", pointNamespace, providerName, sessionID, stepIndex)
+	if ordinal > 0 {
+		identity = fmt.Sprintf("%s#%d", identity, ordinal)
+	}
+	sum := sha256.Sum256([]byte(identity))
 
 	var id [16]byte
 	copy(id[:], sum[:16])
@@ -57,6 +67,9 @@ func pointID(providerName, sessionID string, stepIndex int) string {
 // that carry no text at all.
 func turnsToPoints(cfg *Config, summary provider.ConversationSummary, turns []provider.TurnInfo) []Point {
 	points := make([]Point, 0, len(turns))
+	// Counted only over turns that become points, so an ordinal always lines up
+	// with what is stored rather than with turns that were skipped.
+	perStep := make(map[int]int)
 
 	for _, turn := range turns {
 		content := strings.TrimSpace(turn.Content)
@@ -64,6 +77,8 @@ func turnsToPoints(cfg *Config, summary provider.ConversationSummary, turns []pr
 		if content == "" && thinking == "" {
 			continue
 		}
+		ordinal := perStep[turn.StepIndex]
+		perStep[turn.StepIndex]++
 
 		role := turn.Role
 		if role == "" {
@@ -71,7 +86,7 @@ func turnsToPoints(cfg *Config, summary provider.ConversationSummary, turns []pr
 		}
 
 		points = append(points, Point{
-			ID: pointID(summary.Provider, summary.ID, turn.StepIndex),
+			ID: pointID(summary.Provider, summary.ID, turn.StepIndex, ordinal),
 			Payload: Payload{
 				SessionID:   summary.ID,
 				Provider:    summary.Provider,
