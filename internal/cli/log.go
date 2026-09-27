@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"agentcli.local/ai/internal/ingest"
 	"agentcli.local/ai/internal/provider"
 	"agentcli.local/ai/internal/search"
 	"github.com/spf13/cobra"
@@ -56,6 +57,7 @@ func logCommand(o *options) *cobra.Command {
 	var grepText string
 	var grepPattern string
 	var contextTurns int
+	var remote bool
 
 	cmd := &cobra.Command{
 		Use:     "log [conversation-id]",
@@ -119,7 +121,16 @@ Examples:
 			}
 
 			var detail *provider.ConversationDetail
-			if provName != "" {
+			if remote {
+				cfg, err := remoteConfig()
+				if err != nil {
+					return err
+				}
+				detail, err = ingest.RemoteConversation(cmd.Context(), cfg, convoID)
+				if err != nil {
+					return err
+				}
+			} else if provName != "" {
 				p, err := provider.Get(provName)
 				if err != nil {
 					return err
@@ -258,6 +269,7 @@ Examples:
 	cmd.Flags().StringVar(&grepText, "grep", "", "Show only turns containing this text (case-insensitive)")
 	cmd.Flags().StringVar(&grepPattern, "grep-pattern", "", "Show only turns matching this regular expression")
 	cmd.Flags().IntVarP(&contextTurns, "context", "C", 0, "Turns of context to show around each --grep match")
+	addRemoteFlag(cmd, &remote)
 
 	return cmd
 }

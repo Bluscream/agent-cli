@@ -295,6 +295,11 @@ func humanBytes(b int64) string {
 }
 
 func (o *options) sizeCell(n int64) string {
+	// A negative size means "not known here" (a remote record carries no file
+	// size); rendering it as 0 B would read as an empty transcript.
+	if n < 0 {
+		return "-"
+	}
 	if o.format == "csv" {
 		return strconv.FormatInt(n, 10)
 	}

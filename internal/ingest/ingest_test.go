@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -28,10 +30,148 @@ type fakeQdrant struct {
 	upsertCalls   int
 	lastWait      string
 	missingVector int
+	scrollFilters []map[string]any
 	// vectors makes a pre-existing collection report a vector config.
 	vectors bool
 	// exists makes the collection appear to already be present.
 	exists bool
+}
+
+// payloadField reads the payload field a filter clause names.
+func payloadField(p Payload, key string) (string, bool) {
+	switch key {
+	case "session_id":
+		return p.SessionID, true
+	case "provider":
+		return p.Provider, true
+	case "hostname":
+		return p.Hostname, true
+	case "project_path":
+		return p.ProjectPath, true
+	case "role":
+		return p.Role, true
+	case "tool_name":
+		return p.ToolName, true
+	case "title":
+		return p.Title, true
+	case "content":
+		return p.Content, true
+	case "created_at":
+		return p.CreatedAt, true
+	}
+	return "", false
+}
+
+// matchesClause evaluates one Qdrant filter clause: an exact keyword match, a
+// full-text substring match, or a datetime lower bound.
+func matchesClause(id string, p Payload, clause map[string]any) bool {
+	if ids, ok := clause["has_id"].([]any); ok {
+		for _, candidate := range ids {
+			if text, ok := candidate.(string); ok && text == id {
+				return true
+			}
+		}
+		return false
+	}
+
+	key, _ := clause["key"].(string)
+	value, known := payloadField(p, key)
+	if !known {
+		return false
+	}
+
+	if match, ok := clause["match"].(map[string]any); ok {
+		if exact, ok := match["value"].(string); ok {
+			return value == exact
+		}
+		if text, ok := match["text"].(string); ok {
+			return strings.Contains(strings.ToLower(value), strings.ToLower(text))
+		}
+	}
+	if bounds, ok := clause["range"].(map[string]any); ok {
+		if gte, ok := bounds["gte"].(string); ok {
+			return value >= gte
+		}
+	}
+	return false
+}
+
+// matchesFilter applies the must and must_not clauses the query layer builds.
+// The fake honours filters deliberately: a fake that returned every point
+// regardless would make each query test pass without proving anything.
+func matchesFilter(id string, p Payload, filter map[string]any) bool {
+	if filter == nil {
+		return true
+	}
+	if must, ok := filter["must"].([]any); ok {
+		for _, raw := range must {
+			clause, ok := raw.(map[string]any)
+			if !ok || !matchesClause(id, p, clause) {
+				return false
+			}
+		}
+	}
+	if mustNot, ok := filter["must_not"].([]any); ok {
+		for _, raw := range mustNot {
+			clause, ok := raw.(map[string]any)
+			if ok && matchesClause(id, p, clause) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// writeScroll answers a scroll, honouring the filter, created_at ordering and
+// the start_from cursor the ordered listing pages with.
+func (f *fakeQdrant) writeScroll(w http.ResponseWriter, limit int, filter map[string]any, orderBy map[string]any) {
+	type entry struct {
+		id      string
+		payload Payload
+	}
+
+	var kept []entry
+	for id, payload := range f.points {
+		if matchesFilter(id, payload, filter) {
+			kept = append(kept, entry{id, payload})
+		}
+	}
+
+	ordered := orderBy != nil
+	if ordered {
+		sort.Slice(kept, func(i, j int) bool {
+			if kept[i].payload.CreatedAt != kept[j].payload.CreatedAt {
+				return kept[i].payload.CreatedAt > kept[j].payload.CreatedAt
+			}
+			return kept[i].id < kept[j].id
+		})
+		if from, ok := orderBy["start_from"].(string); ok {
+			var fromCursor []entry
+			for _, e := range kept {
+				if e.payload.CreatedAt <= from {
+					fromCursor = append(fromCursor, e)
+				}
+			}
+			kept = fromCursor
+		}
+	} else {
+		sort.Slice(kept, func(i, j int) bool { return kept[i].id < kept[j].id })
+	}
+
+	if limit > 0 && len(kept) > limit {
+		kept = kept[:limit]
+	}
+
+	encoded := make([]string, 0, len(kept))
+	for _, e := range kept {
+		payload, err := json.Marshal(e.payload)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		encoded = append(encoded, fmt.Sprintf(`{"id":%q,"payload":%s}`, e.id, payload))
+	}
+	_, _ = w.Write([]byte(`{"result":{"points":[` + strings.Join(encoded, ",") + `],"next_page_offset":null}}`))
 }
 
 func newFakeQdrant(t *testing.T) *fakeQdrant {
@@ -76,6 +216,28 @@ func newFakeQdrant(t *testing.T) *fakeQdrant {
 			_ = json.NewDecoder(r.Body).Decode(&body)
 			f.indexes = append(f.indexes, body.FieldName)
 			_, _ = w.Write([]byte(`{"result":true}`))
+
+		case r.Method == http.MethodPost && pathTail(path) == "points/scroll":
+			var req struct {
+				Filter  map[string]any `json:"filter"`
+				Limit   int            `json:"limit"`
+				OrderBy map[string]any `json:"order_by"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			f.scrollFilters = append(f.scrollFilters, req.Filter)
+			f.writeScroll(w, req.Limit, req.Filter, req.OrderBy)
+
+		case r.Method == http.MethodPost && pathTail(path) == "facet":
+			sessions := map[string]struct{}{}
+			for _, payload := range f.points {
+				sessions[payload.SessionID] = struct{}{}
+			}
+			var hits []string
+			for session := range sessions {
+				hits = append(hits, fmt.Sprintf(`{"value":%q,"count":1}`, session))
+			}
+			sort.Strings(hits)
+			_, _ = w.Write([]byte(`{"result":{"hits":[` + strings.Join(hits, ",") + `]}}`))
 
 		case r.Method == http.MethodPut && strings.HasPrefix(pathTail(path), "points"):
 			// Qdrant requires a vector field on every point even when the

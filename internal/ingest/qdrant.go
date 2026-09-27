@@ -181,6 +181,61 @@ func (q *qdrantClient) ensureIndexes(ctx context.Context, name string) error {
 	return nil
 }
 
+// scrollRequest is Qdrant's points/scroll body. Qdrant rejects an offset
+// combined with order_by, so ordered paging uses order_by.start_from plus a
+// filter excluding the ids already seen at that boundary value.
+type scrollRequest struct {
+	Filter      any `json:"filter,omitempty"`
+	Limit       int `json:"limit"`
+	Offset      any `json:"offset,omitempty"`
+	WithPayload any `json:"with_payload"`
+	OrderBy     any `json:"order_by,omitempty"`
+}
+
+type scrollPoint struct {
+	ID      string  `json:"id"`
+	Payload Payload `json:"payload"`
+}
+
+type scrollResponse struct {
+	Points         []scrollPoint `json:"points"`
+	NextPageOffset any           `json:"next_page_offset"`
+}
+
+// Scroll reads a page of points.
+func (q *qdrantClient) Scroll(ctx context.Context, name string, req scrollRequest) (*scrollResponse, error) {
+	if req.WithPayload == nil {
+		req.WithPayload = true
+	}
+	var out scrollResponse
+	if err := q.do(ctx, http.MethodPost, []string{"collections", name, "points", "scroll"}, nil, req, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// FacetValues returns the distinct values of a keyword payload field. It is
+// the cheap way to enumerate sessions: scrolling every point to collect them
+// would read the whole collection.
+func (q *qdrantClient) FacetValues(ctx context.Context, name, key string, limit int) ([]string, error) {
+	body := map[string]any{"key": key, "limit": limit, "exact": true}
+
+	var out struct {
+		Hits []struct {
+			Value string `json:"value"`
+		} `json:"hits"`
+	}
+	if err := q.do(ctx, http.MethodPost, []string{"collections", name, "facet"}, nil, body, &out); err != nil {
+		return nil, err
+	}
+
+	values := make([]string, 0, len(out.Hits))
+	for _, hit := range out.Hits {
+		values = append(values, hit.Value)
+	}
+	return values, nil
+}
+
 // Upsert writes points in batches. Qdrant accepts large payloads, but a batch
 // that is too big turns one slow request into one failed request.
 func (q *qdrantClient) Upsert(ctx context.Context, name string, points []Point) error {

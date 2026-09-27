@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"agentcli.local/ai/internal/idutil"
+	"agentcli.local/ai/internal/ingest"
 	"agentcli.local/ai/internal/provider"
 	"agentcli.local/ai/internal/search"
 	"github.com/jedib0t/go-pretty/v6/table"
@@ -21,6 +22,7 @@ func historyCommand(o *options) *cobra.Command {
 	var targetProvider string
 	var targetWorkspace string
 	var keyword string
+	var remote bool
 
 	cmd := &cobra.Command{
 		Use:   "history",
@@ -64,10 +66,26 @@ func historyCommand(o *options) *cobra.Command {
 			}
 
 			var allConvos []provider.ConversationSummary
-			for _, p := range provList {
-				convos, err := p.ListConversations(histOpts)
-				if err == nil {
-					allConvos = append(allConvos, convos...)
+			if remote {
+				cfg, err := remoteConfig()
+				if err != nil {
+					return err
+				}
+				allConvos, err = ingest.RemoteConversations(cmd.Context(), cfg, ingest.QueryOptions{
+					Provider:  filterProv,
+					Workspace: targetWorkspace,
+					Since:     sinceTime,
+					Limit:     limit,
+				})
+				if err != nil {
+					return err
+				}
+			} else {
+				for _, p := range provList {
+					convos, err := p.ListConversations(histOpts)
+					if err == nil {
+						allConvos = append(allConvos, convos...)
+					}
 				}
 			}
 			o.timer.Step("conversations_queried")
@@ -174,6 +192,7 @@ func historyCommand(o *options) *cobra.Command {
 	cmd.Flags().IntVarP(&limit, "limit", "n", 25, "Maximum number of conversations to display")
 	cmd.Flags().StringVarP(&targetWorkspace, "workspace", "w", "", "Filter conversations that occurred in this workspace or any parent directory")
 	cmd.Flags().StringVarP(&keyword, "keyword", "k", "", "Filter conversations whose title contains every one of these words, in any order")
+	addRemoteFlag(cmd, &remote)
 
 	return cmd
 }

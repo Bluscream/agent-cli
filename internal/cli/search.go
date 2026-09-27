@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"agentcli.local/ai/internal/ingest"
 	"agentcli.local/ai/internal/search"
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/spf13/cobra"
@@ -24,6 +25,7 @@ func searchCommand(o *options) *cobra.Command {
 		titleOnly       bool
 		unique          bool
 		fuzzy           bool
+		remote          bool
 	)
 
 	cmd := &cobra.Command{
@@ -63,6 +65,28 @@ Examples:
 					return fmt.Errorf("invalid --since value: %w", err)
 				}
 				sinceTime = t
+			}
+
+			if remote {
+				if queryPattern != "" {
+					return fmt.Errorf("--remote matches with Qdrant's full-text index, which has no regex support; use --text instead of --pattern")
+				}
+				cfg, err := remoteConfig()
+				if err != nil {
+					return err
+				}
+				matches, err := ingest.RemoteSearch(cmd.Context(), cfg, ingest.QueryOptions{
+					Provider:  filterProv,
+					Workspace: targetWorkspace,
+					Role:      authorFilter,
+					Text:      queryText,
+					Since:     sinceTime,
+					Limit:     limit,
+				})
+				if err != nil {
+					return err
+				}
+				return renderRemoteSearch(o, cmd.OutOrStdout(), matches, unique)
 			}
 
 			results, err := search.Execute(search.Options{
@@ -156,6 +180,7 @@ Examples:
 	cmd.Flags().BoolVar(&titleOnly, "title-only", false, "Match only against titles, skip transcript loading (fast)")
 	cmd.Flags().BoolVarP(&unique, "unique", "u", false, "Emit only the first match per conversation (deduplicate)")
 	cmd.Flags().BoolVar(&fuzzy, "fuzzy", false, "Match every word of the query in any order, rather than as one phrase")
+	addRemoteFlag(cmd, &remote)
 
 	return cmd
 }

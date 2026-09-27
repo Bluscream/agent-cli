@@ -278,6 +278,25 @@ cheap. Point IDs are derived from provider, session and step index, so
 re-ingesting a conversation updates its turns in place rather than
 duplicating them.
 
+#### Reading the collection back: `--remote`
+
+`ai history`, `ai search` and `ai log` accept `--remote` to read the ingested
+collection instead of the local transcript files — useful on a machine that
+never held the original conversations.
+
+```bash
+ai history --remote -n 20
+ai search "one deploy" --remote --unique
+ai log 678bb5f9 --remote --grep "deploy" --context 2
+```
+
+Short IDs resolve remotely too. Fields the collection does not carry (file
+size, artifact counts) render as `-` rather than `0`. `--remote` matches with
+Qdrant's full-text index, so `ai search --pattern` (regex) is local-only and
+`--remote` rejects it rather than silently ignoring the pattern. Without
+`AI_INGEST_QDRANT_URL`, or with an unreachable or missing collection,
+`--remote` fails with a message naming the fix.
+
 ---
 
 ---
