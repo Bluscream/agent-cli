@@ -72,11 +72,61 @@ func (p *ClaudeProvider) GetActiveAccount() (*provider.AccountInfo, error) {
 	return nil, fmt.Errorf("no active Claude account found")
 }
 
-// GetAccounts returns all accounts known to Claude.
+// GetAccounts returns all accounts known to Claude, including the active session and saved profiles.
 func (p *ClaudeProvider) GetAccounts() ([]provider.AccountInfo, error) {
-	active, err := p.GetActiveAccount()
-	if err != nil || active == nil {
-		return nil, nil
+	var accounts []provider.AccountInfo
+	active, _ := p.GetActiveAccount()
+	activeEmail := ""
+	activeID := ""
+	if active != nil {
+		activeEmail = active.Email
+		activeID = active.ID
 	}
-	return []provider.AccountInfo{*active}, nil
+
+	profiles, _ := ListProfiles()
+
+	for _, prof := range profiles {
+		isActive := false
+		if active != nil {
+			if prof.AccountUUID != "" && activeID != "" && prof.AccountUUID == activeID {
+				isActive = true
+			} else if prof.Email != "" && activeEmail != "" && prof.Email == activeEmail {
+				isActive = true
+			}
+		}
+		activeIn := "-"
+		if isActive {
+			activeIn = "Claude Desktop"
+		}
+		disp := prof.DisplayName
+		if disp == "" {
+			disp = prof.Name
+		}
+		accounts = append(accounts, provider.AccountInfo{
+			Provider:    p.Name(),
+			ID:          prof.Name,
+			DisplayName: disp,
+			Email:       prof.Email,
+			Plan:        prof.Plan,
+			IsActive:    isActive,
+			ActiveIn:    activeIn,
+			ConfigPath:  prof.Path,
+		})
+	}
+
+	// If the active account exists and didn't match any saved profile, prepend it
+	if active != nil {
+		foundActive := false
+		for _, acc := range accounts {
+			if acc.IsActive {
+				foundActive = true
+				break
+			}
+		}
+		if !foundActive {
+			accounts = append([]provider.AccountInfo{*active}, accounts...)
+		}
+	}
+
+	return accounts, nil
 }

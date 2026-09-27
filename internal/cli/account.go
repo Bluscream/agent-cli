@@ -2,10 +2,13 @@ package cli
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"agentcli.local/ai/internal/provider"
 	"agentcli.local/ai/internal/provider/antigravity"
+	"agentcli.local/ai/internal/provider/claude"
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/spf13/cobra"
 )
@@ -19,7 +22,7 @@ func accountCommand(o *options) *cobra.Command {
 		Long: `Displays active accounts currently configured/logged in across all providers,
 as well as inactive saved profiles that can be switched to.
 
-Antigravity profiles can be switched using 'ai account switch <name>'.`,
+Antigravity and Claude profiles can be switched using 'ai account switch <name>' (or with '-p claude').`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return listAccounts(o, cmd, targetProvider)
 		},
@@ -48,16 +51,25 @@ Antigravity profiles can be switched using 'ai account switch <name>'.`,
 				if err != nil {
 					return err
 				}
-				if p.Name() != "antigravity" {
-					return fmt.Errorf("account mutation is only supported for antigravity")
+				if p.Name() != "antigravity" && p.Name() != "claude" {
+					return fmt.Errorf("account mutation is only supported for antigravity and claude")
 				}
+				selected = p.Name()
+			} else {
+				selected = "antigravity"
 			}
 
 			profileName := args[0]
-			if err := antigravity.SaveProfile(profileName); err != nil {
-				return err
+			if selected == "claude" {
+				if err := claude.SaveProfile(profileName); err != nil {
+					return err
+				}
+			} else {
+				if err := antigravity.SaveProfile(profileName); err != nil {
+					return err
+				}
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "[+] Saved active session as profile %q and updated desktop shortcut.\n", profileName)
+			fmt.Fprintf(cmd.OutOrStdout(), "[+] Saved active %s session as profile %q and updated desktop shortcut.\n", selected, profileName)
 			return nil
 		},
 	}
@@ -71,22 +83,43 @@ Antigravity profiles can be switched using 'ai account switch <name>'.`,
 			if selected == "" {
 				selected = o.provider
 			}
+			profileName := args[0]
 			if selected != "" {
 				p, err := provider.Get(selected)
 				if err != nil {
 					return err
 				}
-				if p.Name() != "antigravity" {
-					return fmt.Errorf("account mutation is only supported for antigravity")
+				if p.Name() != "antigravity" && p.Name() != "claude" {
+					return fmt.Errorf("account mutation is only supported for antigravity and claude")
+				}
+				selected = p.Name()
+			} else {
+				agExists := antigravityProfileExists(profileName)
+				clExists := claudeProfileExists(profileName)
+				switch {
+				case agExists && clExists:
+					return fmt.Errorf("profile %q exists for both antigravity and claude; specify -p <provider>", profileName)
+				case clExists:
+					selected = "claude"
+				case agExists:
+					selected = "antigravity"
+				default:
+					selected = "antigravity"
 				}
 			}
 
-			profileName := args[0]
-			fmt.Fprintf(cmd.OutOrStdout(), "[*] Switching to profile %q...\n", profileName)
-			if err := antigravity.SwitchProfile(profileName); err != nil {
-				return err
+			fmt.Fprintf(cmd.OutOrStdout(), "[*] Switching %s to profile %q...\n", selected, profileName)
+			if selected == "claude" {
+				if err := claude.SwitchProfile(profileName); err != nil {
+					return err
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "[+] Successfully switched to profile %q and launched Claude Desktop.\n", profileName)
+			} else {
+				if err := antigravity.SwitchProfile(profileName); err != nil {
+					return err
+				}
+				fmt.Fprintf(cmd.OutOrStdout(), "[+] Successfully switched to profile %q and launched Antigravity IDE.\n", profileName)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "[+] Successfully switched to profile %q and launched Antigravity IDE.\n", profileName)
 			return nil
 		},
 	}
@@ -104,14 +137,23 @@ Antigravity profiles can be switched using 'ai account switch <name>'.`,
 				if err != nil {
 					return err
 				}
-				if p.Name() != "antigravity" {
-					return fmt.Errorf("account mutation is only supported for antigravity")
+				if p.Name() != "antigravity" && p.Name() != "claude" {
+					return fmt.Errorf("account mutation is only supported for antigravity and claude")
 				}
+				selected = p.Name()
+			} else {
+				selected = "antigravity"
 			}
 
-			fmt.Fprintln(cmd.OutOrStdout(), "[*] Clearing session keys and launching fresh instance...")
-			if err := antigravity.FreshSession(); err != nil {
-				return err
+			fmt.Fprintf(cmd.OutOrStdout(), "[*] Clearing %s session keys and launching fresh instance...\n", selected)
+			if selected == "claude" {
+				if err := claude.FreshSession(); err != nil {
+					return err
+				}
+			} else {
+				if err := antigravity.FreshSession(); err != nil {
+					return err
+				}
 			}
 			fmt.Fprintln(cmd.OutOrStdout(), "[+] Launched clean session.")
 			return nil
@@ -121,6 +163,18 @@ Antigravity profiles can be switched using 'ai account switch <name>'.`,
 	cmd.PersistentFlags().StringVarP(&targetProvider, "provider", "p", "", "Filter accounts by agent provider (antigravity, claude, codex)")
 	cmd.AddCommand(listCmd, saveCmd, switchCmd, freshCmd)
 	return cmd
+}
+
+func antigravityProfileExists(name string) bool {
+	p := filepath.Join(antigravity.ProfilesDir(), name+".json")
+	fi, err := os.Stat(p)
+	return err == nil && !fi.IsDir()
+}
+
+func claudeProfileExists(name string) bool {
+	p := filepath.Join(claude.ProfilesDir(), name, "profile.json")
+	fi, err := os.Stat(p)
+	return err == nil && !fi.IsDir()
 }
 
 func listAccounts(o *options, cmd *cobra.Command, targetProvider string) error {
@@ -204,6 +258,6 @@ func listAccounts(o *options, cmd *cobra.Command, targetProvider string) error {
 	}
 
 	fmt.Fprintln(out, o.renderTable(t))
-	fmt.Fprintln(out, faint("  Switch profile: ai account switch <name>  |  Save current: ai account save <name>  |  Fresh: ai account fresh"))
+	fmt.Fprintln(out, faint("  Switch profile: ai account switch <name> [-p claude]  |  Save current: ai account save <name> [-p claude]  |  Fresh: ai account fresh [-p claude]"))
 	return nil
 }
