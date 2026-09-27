@@ -94,7 +94,7 @@ func (p *ClaudeProvider) ListConversations(opts provider.HistoryOptions) ([]prov
 					Provider:       p.Name(),
 					ID:             id,
 					Title:          title,
-					MessagesCount:  1,
+					MessagesCount:  provider.CountUnknown,
 					CreatedAt:      created,
 					UpdatedAt:      updated,
 					WorkspaceDir:   ws,
@@ -164,7 +164,8 @@ func (p *ClaudeProvider) GetConversation(id string) (*provider.ConversationDetai
 		return nil
 	})
 
-	turns := readClaudeTurns(trPath, 0)
+	turns, msgCount := readClaudeTurns(trPath, 0)
+	matched.MessagesCount = msgCount
 	var initPrompt, lastResp string
 	for _, t := range turns {
 		if t.Role == "user" && initPrompt == "" {
@@ -273,6 +274,7 @@ func parseClaudeTranscript(path, sessionID, wsDir string, fi os.FileInfo) *provi
 		Provider:       "claude",
 		ID:             sessionID,
 		Title:          fmt.Sprintf("Claude %.8s", sessionID),
+		MessagesCount:  provider.CountUnknown,
 		CreatedAt:      fi.ModTime(),
 		UpdatedAt:      fi.ModTime(),
 		WorkspaceDir:   wsDir,
@@ -361,24 +363,32 @@ func parseClaudeTranscript(path, sessionID, wsDir string, fi os.FileInfo) *provi
 		}
 
 		if summary.Title != fmt.Sprintf("Claude %.8s", sessionID) && summary.WorkspaceDir != "" && stepCount >= 10 {
-			break
+			return summary
 		}
 		if stepCount > 40 {
-			break
+			return summary
 		}
 	}
+	if err := scanner.Err(); err != nil {
+		return summary
+	}
+	// Only a scan that ran to the end of the file has seen every record; the
+	// early returns above leave the count unknown rather than reporting the
+	// position the scan happened to stop at.
 	summary.MessagesCount = stepCount
 	return summary
 }
 
-func readClaudeTurns(path string, limit int) []provider.TurnInfo {
+// readClaudeTurns returns the parsed turns and the total number of non-empty
+// transcript records seen, which is the exact message count for the summary.
+func readClaudeTurns(path string, limit int) ([]provider.TurnInfo, int) {
 	var turns []provider.TurnInfo
 	if path == "" {
-		return turns
+		return turns, 0
 	}
 	f, err := os.Open(path)
 	if err != nil {
-		return turns
+		return turns, 0
 	}
 	defer f.Close()
 
@@ -525,7 +535,7 @@ func readClaudeTurns(path string, limit int) []provider.TurnInfo {
 		turns = all
 	}
 
-	return turns
+	return turns, step
 }
 
 func cleanTitleText(text string) string {

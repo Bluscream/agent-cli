@@ -122,7 +122,7 @@ Examples:
 					kv("Full Raw ID", c.ID),
 					kv("Last Active", c.UpdatedAt.Format("2006-01-02 15:04:05")),
 					kv("Workspace", c.WorkspaceDir),
-					kv("Stats", fmt.Sprintf("%d messages, %d artifacts, %s", c.MessagesCount, c.ArtifactsCount, o.sizeCell(c.TotalSizeBytes))),
+					kv("Stats", fmt.Sprintf("%s messages, %d artifacts, %s", messagesCell(c.MessagesCount), c.ArtifactsCount, o.sizeCell(c.TotalSizeBytes))),
 				)
 				if e.GitBranch != "" {
 					dirtyStr := colorStatus("clean")

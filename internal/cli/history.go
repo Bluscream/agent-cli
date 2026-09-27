@@ -9,6 +9,7 @@ import (
 
 	"agentcli.local/ai/internal/idutil"
 	"agentcli.local/ai/internal/provider"
+	"agentcli.local/ai/internal/search"
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/spf13/cobra"
 )
@@ -93,12 +94,13 @@ func historyCommand(o *options) *cobra.Command {
 				allConvos = filtered
 			}
 
-			// Filter by keyword against title if specified
+			// Filter by keyword against title if specified. Every term has to
+			// appear, but in any order: a remembered title is rarely an exact
+			// substring of the real one.
 			if keyword != "" {
-				lowerKey := strings.ToLower(keyword)
 				var keyFiltered []provider.ConversationSummary
 				for _, c := range allConvos {
-					if strings.Contains(strings.ToLower(c.Title), lowerKey) {
+					if search.MatchTerms(c.Title, keyword, false) {
 						keyFiltered = append(keyFiltered, c)
 					}
 				}
@@ -122,6 +124,14 @@ func historyCommand(o *options) *cobra.Command {
 			}
 
 			out := cmd.OutOrStdout()
+			// A title-only search misses conversations whose subject never made
+			// it into the title, so point at the command that reads the bodies.
+			if len(allConvos) == 0 && keyword != "" {
+				fmt.Fprintf(out, "No conversation title matches %q.\n", keyword)
+				fmt.Fprintf(out, "Titles come from the opening message; to search the transcripts themselves run:\n  ai search %q\n", keyword)
+				return nil
+			}
+
 			t := o.newTable(out)
 			t.AppendHeader(table.Row{"Provider", "ID", "Title", "Workspace", "MSGS", "FILES", "Total Size", "Created", "MODIFIED"})
 
@@ -145,7 +155,7 @@ func historyCommand(o *options) *cobra.Command {
 					idutil.ShortID(c.ID),
 					o.csvCell(c.Title),
 					o.csvCell(wsDisplay),
-					c.MessagesCount,
+					messagesCell(c.MessagesCount),
 					c.ArtifactsCount,
 					o.sizeCell(c.TotalSizeBytes),
 					createdStr,
@@ -163,7 +173,7 @@ func historyCommand(o *options) *cobra.Command {
 	cmd.Flags().BoolVar(&lastOnly, "last", false, "Show only the single most recent conversation")
 	cmd.Flags().IntVarP(&limit, "limit", "n", 25, "Maximum number of conversations to display")
 	cmd.Flags().StringVarP(&targetWorkspace, "workspace", "w", "", "Filter conversations that occurred in this workspace or any parent directory")
-	cmd.Flags().StringVarP(&keyword, "keyword", "k", "", "Filter conversations whose title contains this substring")
+	cmd.Flags().StringVarP(&keyword, "keyword", "k", "", "Filter conversations whose title contains every one of these words, in any order")
 
 	return cmd
 }

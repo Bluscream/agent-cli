@@ -25,11 +25,17 @@ type ProviderInfo struct {
 	LastActive     time.Time `json:"last_active,omitempty"`
 }
 
+// CountUnknown marks a count that was deliberately not computed. Listing a
+// conversation must not read gigabytes of transcript, so providers that can
+// only learn the real figure by parsing the whole file report this instead of
+// a partial count; the detail view (GetConversation) fills in the true value.
+const CountUnknown = -1
+
 type ConversationSummary struct {
 	Provider       string    `json:"provider"`
 	ID             string    `json:"id"`
 	Title          string    `json:"title"`
-	MessagesCount  int       `json:"messages_count"`
+	MessagesCount  int       `json:"messages_count"` // transcript records; CountUnknown (-1) when not computed
 	ArtifactsCount int       `json:"artifacts_count"`
 	TotalSizeBytes int64     `json:"total_size_bytes"`
 	CreatedAt      time.Time `json:"created_at"`

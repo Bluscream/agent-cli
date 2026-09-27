@@ -301,6 +301,15 @@ func (o *options) sizeCell(n int64) string {
 	return humanBytes(n)
 }
 
+// messagesCell renders a message count, showing provider.CountUnknown as "-"
+// so an uncounted transcript is never mistaken for a real total.
+func messagesCell(n int) string {
+	if n < 0 {
+		return "-"
+	}
+	return strconv.Itoa(n)
+}
+
 // dateTimeCell formats a timestamp:
 // - CSV: standard "2006-01-02 15:04"
 // - Today: "15:04" (omits date if from today)

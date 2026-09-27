@@ -55,7 +55,9 @@ func (p *CodexProvider) ListConversations(opts provider.HistoryOptions) ([]provi
 		}
 
 		var sizeBytes int64
-		msgCount := 0
+		// The rollout file is only parsed by GetConversation, so the listing
+		// cannot know the real figure.
+		msgCount := provider.CountUnknown
 		if fi, err := os.Stat(rolloutPath); err == nil {
 			sizeBytes = fi.Size()
 		}
