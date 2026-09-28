@@ -29,8 +29,10 @@ func Inspect(dir string) GitStatus {
 	if strings.TrimSpace(dir) == "" {
 		return GitStatus{}
 	}
-	cleanDir := strings.TrimPrefix(dir, "file://")
-	cleanDir = filepath.Clean(cleanDir)
+	// The same normalisation provider.Workspace applies. gitutil cannot import
+	// provider (provider imports gitutil), so this is the one place the rule is
+	// repeated, and it must stay in step with ParseWorkspace.
+	cleanDir := filepath.Clean(strings.TrimPrefix(dir, "file://"))
 
 	gs := GitStatus{
 		WorkDir: cleanDir,

@@ -91,7 +91,7 @@ func turnsToPoints(cfg *Config, summary provider.ConversationSummary, turns []pr
 				SessionID:   summary.ID,
 				Provider:    summary.Provider,
 				Hostname:    cfg.Hostname,
-				ProjectPath: strings.TrimPrefix(summary.WorkspaceDir, "file://"),
+				ProjectPath: provider.ParseWorkspace(summary.WorkspaceDir).Path(),
 				Title:       summary.Title,
 				Role:        role,
 				Content:     content,

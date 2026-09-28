@@ -136,13 +136,18 @@ type SkillItem struct {
 }
 
 type HistoryOptions struct {
-	Provider  string
-	Since     time.Time
-	Last      bool
-	Limit     int
-	Search    string
-	Workspace string
+	Provider string
+	Since    time.Time
+	Last     bool
+	Limit    int
+	Search   string
 }
+
+// Note: there is deliberately no Workspace field. One existed, was set by two
+// callers and read by no provider, so both callers filtered again afterwards
+// with the same predicate written out twice — a field that looked honoured and
+// one predicate maintained in two files. Workspace filtering is Workspace.Contains,
+// applied by the caller.
 
 type PluginItem struct {
 	Provider    string `json:"provider"`

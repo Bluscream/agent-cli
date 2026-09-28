@@ -261,19 +261,14 @@ func Execute(opts Options) ([]MatchResult, error) {
 
 	// 1. Search Conversations
 	if searchConvos {
-		histOpts := provider.HistoryOptions{
-			Workspace: opts.Workspace,
-		}
+		histOpts := provider.HistoryOptions{}
 		for _, p := range provList {
 			convos, err := p.ListConversations(histOpts)
 			if err != nil {
 				continue
 			}
 
-			cleanTarget := ""
-			if opts.Workspace != "" {
-				cleanTarget = filepath.Clean(strings.TrimPrefix(opts.Workspace, "file://"))
-			}
+			target := provider.ParseWorkspace(opts.Workspace)
 
 			for _, c := range convos {
 				// --since: skip conversations last updated before the cutoff
@@ -281,14 +276,8 @@ func Execute(opts Options) ([]MatchResult, error) {
 					continue
 				}
 
-				if cleanTarget != "" {
-					ws := filepath.Clean(strings.TrimPrefix(c.WorkspaceDir, "file://"))
-					if ws == "." || ws == "" {
-						continue
-					}
-					if ws != cleanTarget && !strings.HasPrefix(cleanTarget, ws+string(filepath.Separator)) && !strings.HasPrefix(ws, cleanTarget+string(filepath.Separator)) {
-						continue
-					}
+				if target.Known() && !target.Contains(provider.ParseWorkspace(c.WorkspaceDir)) {
+					continue
 				}
 
 				// Check Title first
@@ -300,7 +289,7 @@ func Execute(opts Options) ([]MatchResult, error) {
 						EntityID:    idutil.ShortID(c.ID),
 						FullID:      c.ID,
 						EntityTitle: c.Title,
-						Workspace:   strings.TrimPrefix(c.WorkspaceDir, "file://"),
+						Workspace:   provider.ParseWorkspace(c.WorkspaceDir).Path(),
 						Author:      "title",
 						Timestamp:   c.UpdatedAt,
 						Location:    "Title",
@@ -344,7 +333,7 @@ func Execute(opts Options) ([]MatchResult, error) {
 							EntityID:    idutil.ShortID(c.ID),
 							FullID:      c.ID,
 							EntityTitle: c.Title,
-							Workspace:   strings.TrimPrefix(c.WorkspaceDir, "file://"),
+							Workspace:   provider.ParseWorkspace(c.WorkspaceDir).Path(),
 							Author:      t.Role,
 							Timestamp:   t.Timestamp,
 							Location:    fmt.Sprintf("Step #%d", t.StepIndex),
@@ -364,7 +353,7 @@ func Execute(opts Options) ([]MatchResult, error) {
 								EntityID:    idutil.ShortID(c.ID),
 								FullID:      c.ID,
 								EntityTitle: c.Title,
-								Workspace:   strings.TrimPrefix(c.WorkspaceDir, "file://"),
+								Workspace:   provider.ParseWorkspace(c.WorkspaceDir).Path(),
 								Author:      "thinking",
 								Timestamp:   t.Timestamp,
 								Location:    fmt.Sprintf("Step #%d (thinking)", t.StepIndex),

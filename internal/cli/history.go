@@ -2,9 +2,7 @@ package cli
 
 import (
 	"fmt"
-	"path/filepath"
 	"sort"
-	"strings"
 	"time"
 
 	"agentcli.local/ai/internal/idutil"
@@ -38,12 +36,14 @@ func historyCommand(o *options) *cobra.Command {
 			}
 
 			histOpts := provider.HistoryOptions{
-				Since:     sinceTime,
-				Last:      lastOnly || o.last,
-				Limit:     limit,
-				Workspace: targetWorkspace,
+				Since: sinceTime,
+				Last:  lastOnly || o.last,
+				Limit: limit,
 			}
 
+			// Per-provider limits would truncate before the workspace filter
+			// below ran, so the filter is applied to everything and the limit
+			// afterwards.
 			if targetWorkspace != "" {
 				histOpts.Limit = 0
 				histOpts.Last = false
@@ -85,22 +85,10 @@ func historyCommand(o *options) *cobra.Command {
 			}
 			o.timer.Step("conversations_queried")
 
-			// Filter by workspace if specified
-			if targetWorkspace != "" {
-				cleanTarget := strings.TrimPrefix(targetWorkspace, "file://")
-				cleanTarget = filepath.Clean(cleanTarget)
-
+			if target := provider.ParseWorkspace(targetWorkspace); target.Known() {
 				var filtered []provider.ConversationSummary
 				for _, c := range allConvos {
-					ws := strings.TrimPrefix(c.WorkspaceDir, "file://")
-					ws = filepath.Clean(ws)
-					if ws == "." || ws == "" {
-						continue
-					}
-					// Check if workspace matches or is a parent/child
-					// "only shows conversations that happened in this workspace or any parent"
-					// Meaning: ws is cleanTarget OR cleanTarget has prefix ws OR ws has prefix cleanTarget
-					if ws == cleanTarget || strings.HasPrefix(cleanTarget, ws+string(filepath.Separator)) || strings.HasPrefix(ws, cleanTarget+string(filepath.Separator)) {
+					if target.Contains(provider.ParseWorkspace(c.WorkspaceDir)) {
 						filtered = append(filtered, c)
 					}
 				}
@@ -159,7 +147,7 @@ func historyCommand(o *options) *cobra.Command {
 			))
 
 			for _, c := range allConvos {
-				wsDisplay := strings.TrimPrefix(c.WorkspaceDir, "file://")
+				wsDisplay := provider.ParseWorkspace(c.WorkspaceDir).Display()
 				createdStr := o.dateTimeCell(c.CreatedAt)
 				updatedStr := o.dateTimeCell(c.UpdatedAt)
 
