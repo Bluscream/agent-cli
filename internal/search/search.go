@@ -229,15 +229,9 @@ func Execute(opts Options) ([]MatchResult, error) {
 		return nil, err
 	}
 
-	var provList []provider.Provider
-	if opts.Provider != "" {
-		p, err := provider.Get(opts.Provider)
-		if err != nil {
-			return nil, err
-		}
-		provList = []provider.Provider{p}
-	} else {
-		provList = provider.All()
+	provList, err := provider.Select(opts.Provider)
+	if err != nil {
+		return nil, err
 	}
 
 	searchConvos := opts.TypeFilter == "" || strings.EqualFold(opts.TypeFilter, "conversations") || strings.EqualFold(opts.TypeFilter, "conversation")

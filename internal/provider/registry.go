@@ -123,3 +123,32 @@ func Locate(providerName, id string) (*Located, error) {
 	return nil, fmt.Errorf("%q matches conversations in several providers: %s; narrow it with -p or use the full id",
 		id, strings.Join(names, ", "))
 }
+
+// MostRecent returns the selected provider with the most recently updated
+// conversation, and that conversation. Two commands picked "the most recent
+// activity" with identical code, and a third needs it now.
+//
+// A provider that cannot be listed is skipped rather than aborting: the answer
+// is still the most recent of what could be read, and reporting nothing because
+// one provider is not installed would be worse.
+func MostRecent(providerName string) (*Located, error) {
+	providers, err := Select(providerName)
+	if err != nil {
+		return nil, err
+	}
+
+	var best *Located
+	for _, p := range providers {
+		convos, err := p.ListConversations(HistoryOptions{Last: true})
+		if err != nil || len(convos) == 0 {
+			continue
+		}
+		if best == nil || convos[0].UpdatedAt.After(best.Summary.UpdatedAt) {
+			best = &Located{Provider: p, Summary: convos[0]}
+		}
+	}
+	if best == nil {
+		return nil, fmt.Errorf("no conversations found")
+	}
+	return best, nil
+}

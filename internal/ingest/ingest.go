@@ -2,7 +2,6 @@ package ingest
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sort"
 	"time"
@@ -148,7 +147,7 @@ func Run(ctx context.Context, cfg *Config, opts Options) (*Result, error) {
 // gatherWork lists every conversation to be considered, and reports providers
 // that could not be listed rather than aborting the pass.
 func gatherWork(opts Options) ([]workItem, []ConversationResult) {
-	providers, err := selectProviders(opts.Provider)
+	providers, err := provider.Select(opts.Provider)
 	if err != nil {
 		return nil, []ConversationResult{{Error: err.Error()}}
 	}
@@ -245,21 +244,6 @@ func applyResult(result *Result, detail ConversationResult) {
 	if !detail.Skipped {
 		result.Details = append(result.Details, detail)
 	}
-}
-
-func selectProviders(name string) ([]provider.Provider, error) {
-	if name == "" {
-		all := provider.All()
-		if len(all) == 0 {
-			return nil, errors.New("no providers are registered")
-		}
-		return all, nil
-	}
-	p, err := provider.Get(name)
-	if err != nil {
-		return nil, err
-	}
-	return []provider.Provider{p}, nil
 }
 
 // Status reports the destination's health and what the local offset store believes.

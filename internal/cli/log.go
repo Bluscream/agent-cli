@@ -89,33 +89,12 @@ Examples:
 			if len(args) > 0 {
 				convoID = args[0]
 			} else if o.last {
-				// Pick most recent conversation
-				var mostRecent provider.Provider
-				var latestTime int64
-				var targetCID string
-				candidates := provider.All()
-				if provName != "" {
-					p, err := provider.Get(provName)
-					if err != nil {
-						return err
-					}
-					candidates = []provider.Provider{p}
+				latest, err := provider.MostRecent(provName)
+				if err != nil {
+					return err
 				}
-				for _, prov := range candidates {
-					convos, err := prov.ListConversations(provider.HistoryOptions{Last: true})
-					if err == nil && len(convos) > 0 {
-						if convos[0].UpdatedAt.Unix() > latestTime {
-							latestTime = convos[0].UpdatedAt.Unix()
-							mostRecent = prov
-							targetCID = convos[0].ID
-						}
-					}
-				}
-				if mostRecent == nil {
-					return fmt.Errorf("no conversations found")
-				}
-				convoID = targetCID
-				provName = mostRecent.Name()
+				convoID = latest.Summary.ID
+				provName = latest.Provider.Name()
 			} else {
 				return fmt.Errorf("conversation ID is required (or specify --last)")
 			}
@@ -130,22 +109,16 @@ Examples:
 				if err != nil {
 					return err
 				}
-			} else if provName != "" {
-				p, err := provider.Get(provName)
+			} else {
+				// Locate errors on an id matching several providers instead of
+				// printing whichever registered first.
+				located, err := provider.Locate(provName, convoID)
 				if err != nil {
 					return err
 				}
-				d, err := p.GetConversation(convoID)
-				if err == nil && d != nil {
-					detail = d
-				}
-			} else {
-				for _, p := range provider.All() {
-					d, err := p.GetConversation(convoID)
-					if err == nil && d != nil {
-						detail = d
-						break
-					}
+				detail, err = located.Provider.GetConversation(located.Summary.ID)
+				if err != nil {
+					return err
 				}
 			}
 

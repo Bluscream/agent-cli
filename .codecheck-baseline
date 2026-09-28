@@ -34,7 +34,6 @@ internal/cli/plugins.go:pluginsCommand 148
 internal/cli/search.go:searchCommand 173
 internal/cli/search.go:function literal 122
 internal/cli/skill.go:skillCommand 137
-internal/cli/skill.go:function literal 102
 internal/cli/status.go:statusCommand 125
 internal/cli/status.go:function literal 114
 internal/provider/antigravity/limits.go:GetLimits 145

@@ -29,13 +29,9 @@ The active / currently-selected model is highlighted with a ★ marker.`,
 }
 
 func runModels(o *options, cmd *cobra.Command, showDescriptions bool) error {
-	providers := provider.All()
-	if o.provider != "" {
-		p, err := provider.Get(o.provider)
-		if err != nil {
-			return err
-		}
-		providers = []provider.Provider{p}
+	providers, err := provider.Select(o.provider)
+	if err != nil {
+		return err
 	}
 
 	var all []provider.ModelInfo

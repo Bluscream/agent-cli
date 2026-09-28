@@ -23,19 +23,13 @@ func statusCommand(o *options) *cobra.Command {
 		Aliases: []string{"info", "agent", "agents", "provider", "providers"},
 		Short:   "Display status, logged-in account, limits bar, active model, and resource usage for all installed agents",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			var provList []provider.Provider
-			if targetProvider != "" || o.provider != "" {
-				name := targetProvider
-				if name == "" {
-					name = o.provider
-				}
-				p, err := provider.Get(name)
-				if err != nil {
-					return err
-				}
-				provList = []provider.Provider{p}
-			} else {
-				provList = provider.All()
+			name := targetProvider
+			if name == "" {
+				name = o.provider
+			}
+			provList, err := provider.Select(name)
+			if err != nil {
+				return err
 			}
 			o.timer.Step("providers_resolved")
 

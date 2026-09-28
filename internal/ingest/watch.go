@@ -15,7 +15,7 @@ import (
 // WatchRoots returns the transcript directories of every selected provider that
 // can name them. Providers without the capability are skipped.
 func WatchRoots(providerName string) ([]string, error) {
-	providers, err := selectProviders(providerName)
+	providers, err := provider.Select(providerName)
 	if err != nil {
 		return nil, err
 	}

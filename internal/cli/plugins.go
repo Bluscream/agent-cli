@@ -166,15 +166,9 @@ func listPluginsCmd(o *options, targetProvider string, cmd *cobra.Command) error
 		provName = o.provider
 	}
 
-	var provList []provider.Provider
-	if provName != "" {
-		p, err := provider.Get(provName)
-		if err != nil {
-			return err
-		}
-		provList = []provider.Provider{p}
-	} else {
-		provList = provider.All()
+	provList, err := provider.Select(provName)
+	if err != nil {
+		return err
 	}
 
 	var allPlugins []provider.PluginItem

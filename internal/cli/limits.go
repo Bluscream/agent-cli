@@ -27,13 +27,9 @@ is made. Where no local data is available a note is shown instead.`,
 }
 
 func runLimits(o *options, cmd *cobra.Command) error {
-	providers := provider.All()
-	if o.provider != "" {
-		p, err := provider.Get(o.provider)
-		if err != nil {
-			return err
-		}
-		providers = []provider.Provider{p}
+	providers, err := provider.Select(o.provider)
+	if err != nil {
+		return err
 	}
 
 	var all []provider.LimitInfo

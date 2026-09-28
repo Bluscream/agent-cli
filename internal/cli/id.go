@@ -30,21 +30,13 @@ Examples:
 			}
 			query := strings.TrimSpace(args[0])
 
-			var provList []provider.Provider
-			if targetProvider != "" {
-				p, err := provider.Get(targetProvider)
-				if err != nil {
-					return err
-				}
-				provList = []provider.Provider{p}
-			} else if o.provider != "" {
-				p, err := provider.Get(o.provider)
-				if err != nil {
-					return err
-				}
-				provList = []provider.Provider{p}
-			} else {
-				provList = provider.All()
+			name := targetProvider
+			if name == "" {
+				name = o.provider
+			}
+			provList, err := provider.Select(name)
+			if err != nil {
+				return err
 			}
 
 			// 1. Check Conversations

@@ -184,14 +184,9 @@ func listAccounts(o *options, cmd *cobra.Command, targetProvider string) error {
 		filter = o.provider
 	}
 
-	if filter != "" {
-		p, err := provider.Get(filter)
-		if err != nil {
-			return err
-		}
-		provList = []provider.Provider{p}
-	} else {
-		provList = provider.All()
+	provList, err := provider.Select(filter)
+	if err != nil {
+		return err
 	}
 
 	var allAccounts []provider.AccountInfo

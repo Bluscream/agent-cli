@@ -36,42 +36,25 @@ Example:
 			}
 
 			var p provider.Provider
-			var err error
-			if provName != "" {
-				p, err = provider.Get(provName)
+			switch {
+			case provName != "":
+				resolved, err := provider.Get(provName)
 				if err != nil {
 					return err
 				}
-			} else if targetID != "" {
-				for _, candidate := range provider.All() {
-					detail, lookupErr := candidate.GetConversation(targetID)
-					if lookupErr == nil && detail != nil {
-						if p != nil {
-							return fmt.Errorf("ambiguous conversation ID %q; specify --provider", targetID)
-						}
-						p = candidate
-					}
+				p = resolved
+			case targetID != "":
+				located, err := provider.Locate("", targetID)
+				if err != nil {
+					return err
 				}
-				if p == nil {
-					return fmt.Errorf("conversation not found: %s", targetID)
-				}
-			} else {
-				// Pick provider with the most recent activity
-				var mostRecent provider.Provider
-				var latestTime int64
-				for _, prov := range provider.All() {
-					convos, err := prov.ListConversations(provider.HistoryOptions{Last: true})
-					if err == nil && len(convos) > 0 {
-						if convos[0].UpdatedAt.Unix() > latestTime {
-							latestTime = convos[0].UpdatedAt.Unix()
-							mostRecent = prov
-						}
-					}
-				}
-				if mostRecent == nil {
+				p = located.Provider
+			default:
+				latest, err := provider.MostRecent("")
+				if err != nil {
 					return fmt.Errorf("no conversations found to audit")
 				}
-				p = mostRecent
+				p = latest.Provider
 			}
 			o.timer.Step("provider_resolved")
 

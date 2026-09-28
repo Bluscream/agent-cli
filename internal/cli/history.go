@@ -55,14 +55,9 @@ func historyCommand(o *options) *cobra.Command {
 				filterProv = o.provider
 			}
 
-			if filterProv != "" {
-				p, err := provider.Get(filterProv)
-				if err != nil {
-					return err
-				}
-				provList = []provider.Provider{p}
-			} else {
-				provList = provider.All()
+			provList, err := provider.Select(filterProv)
+			if err != nil {
+				return err
 			}
 
 			var allConvos []provider.ConversationSummary

@@ -23,15 +23,9 @@ func skillCommand(o *options) *cobra.Command {
 				provName = o.provider
 			}
 
-			var provList []provider.Provider
-			if provName != "" {
-				p, err := provider.Get(provName)
-				if err != nil {
-					return err
-				}
-				provList = []provider.Provider{p}
-			} else {
-				provList = provider.All()
+			provList, err := provider.Select(provName)
+			if err != nil {
+				return err
 			}
 
 			// Handle --purge
