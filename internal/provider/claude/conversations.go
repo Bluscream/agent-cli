@@ -138,43 +138,19 @@ func (p *ClaudeProvider) ListConversations(opts provider.HistoryOptions) ([]prov
 }
 
 func (p *ClaudeProvider) GetConversation(id string) (*provider.ConversationDetail, error) {
-	summaries, err := p.ListConversations(provider.HistoryOptions{Search: id})
+	matched, err := provider.Find(p, id)
 	if err != nil {
 		return nil, err
 	}
-	var matched *provider.ConversationSummary
-	for _, s := range summaries {
-		if idutil.Match(id, s.ID) {
-			matched = &s
-			break
-		}
-	}
-	if matched == nil {
-		return nil, fmt.Errorf("claude conversation not found: %s", id)
-	}
 
-	home, _ := os.UserHomeDir()
-	projectsDir := filepath.Join(home, ".claude/projects")
-	var trPath string
-	_ = filepath.Walk(projectsDir, func(path string, fi os.FileInfo, err error) error {
-		if err == nil && strings.HasSuffix(path, matched.ID+".jsonl") {
-			trPath = path
-			return filepath.SkipAll
-		}
-		return nil
-	})
+	trPath := matched.TranscriptPath
+	if trPath == "" {
+		trPath = findTranscript(matched.ID)
+	}
 
 	turns, msgCount := readClaudeTurns(trPath, 0)
 	matched.MessagesCount = msgCount
-	var initPrompt, lastResp string
-	for _, t := range turns {
-		if t.Role == "user" && initPrompt == "" {
-			initPrompt = t.Content
-		}
-		if t.Role == "assistant" && strings.TrimSpace(t.Content) != "" {
-			lastResp = t.Content
-		}
-	}
+	initPrompt, lastResp := provider.Endpoints(turns)
 	if initPrompt == "" {
 		initPrompt = matched.Title
 	}
@@ -192,62 +168,7 @@ func (p *ClaudeProvider) GetConversation(id string) (*provider.ConversationDetai
 }
 
 func (p *ClaudeProvider) AuditConversation(id string) (*provider.AuditDossier, error) {
-	var detail *provider.ConversationDetail
-	var err error
-
-	if id == "" {
-		recent, err := p.ListConversations(provider.HistoryOptions{Last: true})
-		if err != nil || len(recent) == 0 {
-			return nil, fmt.Errorf("no recent Claude conversation found")
-		}
-		detail, err = p.GetConversation(recent[0].ID)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		detail, err = p.GetConversation(id)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	dossier := &provider.AuditDossier{
-		Provider:           p.Name(),
-		ConversationID:     detail.Summary.ID,
-		Title:              detail.Summary.Title,
-		LastActive:         detail.Summary.UpdatedAt,
-		WorkspaceDir:       detail.Summary.WorkspaceDir,
-		WorkspaceGit:       detail.WorkspaceGit,
-		FullTranscriptPath: detail.TranscriptPath,
-	}
-
-	// Extract prompts & assistant messages
-	for _, turn := range detail.Turns {
-		if turn.Role == "user" && dossier.UserPrompt == "" {
-			dossier.UserPrompt = turn.Content
-		}
-		if turn.Role == "assistant" {
-			dossier.AssistantSummary = turn.Content
-		}
-	}
-
-	if dossier.UserPrompt == "" && detail.Summary.Title != "" {
-		dossier.UserPrompt = detail.Summary.Title
-	}
-
-	// Check if workspace contains tasks or plan
-	if detail.WorkspaceGit.IsRepo {
-		// Look for common task tracking files in workspace
-		for _, name := range []string{"TODO.md", "task_list.md", "AGENTS.md"} {
-			fp := filepath.Join(detail.WorkspaceGit.WorkDir, name)
-			if data, err := os.ReadFile(fp); err == nil {
-				dossier.PendingOpenTasks = extractPlanTasks(string(data))
-				break
-			}
-		}
-	}
-
-	return dossier, nil
+	return provider.Audit(p, id)
 }
 
 func (p *ClaudeProvider) RecoverConversations(dryRun bool) (string, error) {
@@ -552,37 +473,32 @@ func cleanTitleText(text string) string {
 	return ""
 }
 
-func extractPlanTasks(md string) []string {
-	var tasks []string
-	lines := strings.Split(md, "\n")
-	for _, l := range lines {
-		trimmed := strings.TrimSpace(l)
-		if strings.HasPrefix(trimmed, "- [ ]") || strings.HasPrefix(trimmed, "* [ ]") {
-			tasks = append(tasks, strings.TrimSpace(trimmed[5:]))
-		}
-	}
-	return tasks
-}
-
 // TranscriptRoots implements provider.TranscriptRooter.
 func (p *ClaudeProvider) TranscriptRoots() []string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil
 	}
-	return existingDirs(
+	return provider.ExistingDirs(
 		filepath.Join(home, ".claude/projects"),
 		filepath.Join(home, ".config/Claude/claude-code-sessions"),
 	)
 }
 
-// existingDirs keeps only the paths that are directories today.
-func existingDirs(paths ...string) []string {
-	var found []string
-	for _, path := range paths {
-		if fi, err := os.Stat(path); err == nil && fi.IsDir() {
-			found = append(found, path)
-		}
+// findTranscript locates a session's JSONL under ~/.claude/projects. It is the
+// fallback for a summary whose TranscriptPath was not set.
+func findTranscript(sessionID string) string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
 	}
+	var found string
+	_ = filepath.Walk(filepath.Join(home, ".claude/projects"), func(path string, _ os.FileInfo, err error) error {
+		if err == nil && filepath.Base(path) == sessionID+".jsonl" {
+			found = path
+			return filepath.SkipAll
+		}
+		return nil
+	})
 	return found
 }

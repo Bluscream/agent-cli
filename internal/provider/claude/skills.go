@@ -34,7 +34,7 @@ func (p *ClaudeProvider) ListSkills() ([]provider.SkillItem, error) {
 
 				desc := ""
 				if content, err := os.ReadFile(skillMD); err == nil {
-					desc = extractSkillDescription(string(content))
+					desc = provider.SkillDescription(string(content))
 				}
 
 				skills = append(skills, provider.SkillItem{
@@ -75,23 +75,4 @@ func (p *ClaudeProvider) PurgeSkills() (int, error) {
 		}
 	}
 	return count, nil
-}
-
-func extractSkillDescription(content string) string {
-	lines := strings.Split(content, "\n")
-	inFrontmatter := false
-	for _, l := range lines {
-		trimmed := strings.TrimSpace(l)
-		if trimmed == "---" {
-			if inFrontmatter {
-				break
-			}
-			inFrontmatter = true
-			continue
-		}
-		if inFrontmatter && strings.HasPrefix(trimmed, "description:") {
-			return strings.TrimSpace(strings.TrimPrefix(trimmed, "description:"))
-		}
-	}
-	return ""
 }

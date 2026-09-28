@@ -88,19 +88,9 @@ func (p *CodexProvider) ListConversations(opts provider.HistoryOptions) ([]provi
 }
 
 func (p *CodexProvider) GetConversation(id string) (*provider.ConversationDetail, error) {
-	summaries, err := p.ListConversations(provider.HistoryOptions{Search: id})
+	matched, err := provider.Find(p, id)
 	if err != nil {
 		return nil, err
-	}
-	var matched *provider.ConversationSummary
-	for _, s := range summaries {
-		if idutil.Match(id, s.ID) {
-			matched = &s
-			break
-		}
-	}
-	if matched == nil {
-		return nil, fmt.Errorf("codex conversation not found: %s", id)
 	}
 
 	home, _ := os.UserHomeDir()
@@ -115,15 +105,7 @@ func (p *CodexProvider) GetConversation(id string) (*provider.ConversationDetail
 	turns, msgCount := readRolloutTurns(rolloutPath, 0)
 	matched.MessagesCount = msgCount
 
-	var initPrompt, lastResp string
-	for _, t := range turns {
-		if t.Role == "user" && initPrompt == "" {
-			initPrompt = t.Content
-		}
-		if t.Role == "assistant" && strings.TrimSpace(t.Content) != "" {
-			lastResp = t.Content
-		}
-	}
+	initPrompt, lastResp := provider.Endpoints(turns)
 	if initPrompt == "" {
 		initPrompt = matched.Title
 	}
@@ -175,46 +157,7 @@ FROM thread_artifacts WHERE thread_id = ?;`
 }
 
 func (p *CodexProvider) AuditConversation(id string) (*provider.AuditDossier, error) {
-	var detail *provider.ConversationDetail
-	var err error
-
-	if id == "" {
-		recent, err := p.ListConversations(provider.HistoryOptions{Last: true})
-		if err != nil || len(recent) == 0 {
-			return nil, fmt.Errorf("no recent Codex conversation found")
-		}
-		detail, err = p.GetConversation(recent[0].ID)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		detail, err = p.GetConversation(id)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	dossier := &provider.AuditDossier{
-		Provider:           p.Name(),
-		ConversationID:     detail.Summary.ID,
-		Title:              detail.Summary.Title,
-		LastActive:         detail.Summary.UpdatedAt,
-		WorkspaceDir:       detail.Summary.WorkspaceDir,
-		WorkspaceGit:       detail.WorkspaceGit,
-		FullTranscriptPath: detail.TranscriptPath,
-		TouchedArtifacts:   detail.Artifacts,
-	}
-
-	for _, turn := range detail.Turns {
-		if turn.Role == "user" && dossier.UserPrompt == "" {
-			dossier.UserPrompt = turn.Content
-		}
-		if turn.Role == "assistant" {
-			dossier.AssistantSummary = turn.Content
-		}
-	}
-
-	return dossier, nil
+	return provider.Audit(p, id)
 }
 
 func (p *CodexProvider) RecoverConversations(dryRun bool) (string, error) {
@@ -377,9 +320,5 @@ func (p *CodexProvider) TranscriptRoots() []string {
 	if err != nil {
 		return nil
 	}
-	sessions := filepath.Join(home, ".codex/sessions")
-	if fi, err := os.Stat(sessions); err == nil && fi.IsDir() {
-		return []string{sessions}
-	}
-	return nil
+	return provider.ExistingDirs(filepath.Join(home, ".codex/sessions"))
 }

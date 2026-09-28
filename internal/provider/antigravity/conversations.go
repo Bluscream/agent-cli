@@ -106,19 +106,9 @@ func (p *AntigravityProvider) ListConversations(opts provider.HistoryOptions) ([
 }
 
 func (p *AntigravityProvider) GetConversation(id string) (*provider.ConversationDetail, error) {
-	summaries, err := p.ListConversations(provider.HistoryOptions{Search: id})
+	matched, err := provider.Find(p, id)
 	if err != nil {
 		return nil, err
-	}
-	var matched *provider.ConversationSummary
-	for _, s := range summaries {
-		if idutil.Match(id, s.ID) {
-			matched = &s
-			break
-		}
-	}
-	if matched == nil {
-		return nil, fmt.Errorf("conversation not found: %s", id)
 	}
 
 	home, _ := os.UserHomeDir()
@@ -126,15 +116,7 @@ func (p *AntigravityProvider) GetConversation(id string) (*provider.Conversation
 	trPath := filepath.Join(brainPath, ".system_generated", "logs", "transcript.jsonl")
 
 	turns := readTurns(trPath, 0) // read all turns
-	var initPrompt, lastResp string
-	for _, t := range turns {
-		if t.Role == "user" && initPrompt == "" {
-			initPrompt = t.Content
-		}
-		if t.Role == "assistant" && strings.TrimSpace(t.Content) != "" {
-			lastResp = t.Content
-		}
-	}
+	initPrompt, lastResp := provider.Endpoints(turns)
 	if initPrompt == "" {
 		initPrompt = matched.Title
 	}
@@ -153,56 +135,24 @@ func (p *AntigravityProvider) GetConversation(id string) (*provider.Conversation
 }
 
 func (p *AntigravityProvider) AuditConversation(id string) (*provider.AuditDossier, error) {
-	var detail *provider.ConversationDetail
-	var err error
-	if id == "" {
-		// Last conversation
-		recent, err := p.ListConversations(provider.HistoryOptions{Last: true})
-		if err != nil || len(recent) == 0 {
-			return nil, fmt.Errorf("no recent Antigravity conversation found")
-		}
-		detail, err = p.GetConversation(recent[0].ID)
-		if err != nil {
-			return nil, err
-		}
-	} else {
-		detail, err = p.GetConversation(id)
-		if err != nil {
-			return nil, err
-		}
-	}
+	return provider.Audit(p, id)
+}
 
-	dossier := &provider.AuditDossier{
-		Provider:           p.Name(),
-		ConversationID:     detail.Summary.ID,
-		Title:              detail.Summary.Title,
-		LastActive:         detail.Summary.UpdatedAt,
-		WorkspaceDir:       detail.Summary.WorkspaceDir,
-		WorkspaceGit:       detail.WorkspaceGit,
-		FullTranscriptPath: detail.TranscriptPath,
-		TouchedArtifacts:   detail.Artifacts,
-	}
-
-	// Extract prompt & assistant summary from turns
-	for _, turn := range detail.Turns {
-		if turn.Role == "user" && dossier.UserPrompt == "" {
-			dossier.UserPrompt = turn.Content
-		}
-		if turn.Role == "assistant" {
-			dossier.AssistantSummary = turn.Content
-		}
-	}
-
-	// Look for implementation_plan.md or walkthrough.md
+// PendingTasks implements provider.AuditTasker. The IDE writes the
+// conversation's own plan as an artifact, which is a better answer than the
+// repository's task files.
+func (p *AntigravityProvider) PendingTasks(detail *provider.ConversationDetail) []string {
 	for _, art := range detail.Artifacts {
-		if art.Name == "implementation_plan.md" {
-			if content, err := os.ReadFile(art.Path); err == nil {
-				dossier.PendingOpenTasks = extractPlanTasks(string(content))
-			}
+		if art.Name != "implementation_plan.md" {
+			continue
 		}
+		content, err := os.ReadFile(art.Path)
+		if err != nil {
+			continue
+		}
+		return provider.PlanTasks(string(content))
 	}
-
-	return dossier, nil
+	return nil
 }
 
 func (p *AntigravityProvider) RecoverConversations(dryRun bool) (string, error) {
@@ -313,30 +263,14 @@ func parseTrajectorySummary(cid string, rawSub []byte) *provider.ConversationSum
 	return s
 }
 
-func extractPlanTasks(md string) []string {
-	var tasks []string
-	lines := strings.Split(md, "\n")
-	for _, l := range lines {
-		trimmed := strings.TrimSpace(l)
-		if strings.HasPrefix(trimmed, "- [ ]") || strings.HasPrefix(trimmed, "* [ ]") {
-			tasks = append(tasks, strings.TrimSpace(trimmed[5:]))
-		}
-	}
-	return tasks
-}
-
 // TranscriptRoots implements provider.TranscriptRooter.
 func (p *AntigravityProvider) TranscriptRoots() []string {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return nil
 	}
-	var roots []string
-	for _, base := range []string{".gemini/antigravity-ide/brain", ".gemini/antigravity/brain"} {
-		path := filepath.Join(home, base)
-		if fi, err := os.Stat(path); err == nil && fi.IsDir() {
-			roots = append(roots, path)
-		}
-	}
-	return roots
+	return provider.ExistingDirs(
+		filepath.Join(home, ".gemini/antigravity-ide/brain"),
+		filepath.Join(home, ".gemini/antigravity/brain"),
+	)
 }

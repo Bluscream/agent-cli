@@ -5,7 +5,6 @@ import (
 	"agentcli.local/ai/internal/provider"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 func (p *CodexProvider) ListSkills() ([]provider.SkillItem, error) {
@@ -39,7 +38,7 @@ func (p *CodexProvider) ListSkills() ([]provider.SkillItem, error) {
 			skillMD := filepath.Join(skillDir, "SKILL.md")
 			desc := ""
 			if data, err := os.ReadFile(skillMD); err == nil {
-				desc = extractSkillDescription(string(data))
+				desc = provider.SkillDescription(string(data))
 			}
 
 			skills = append(skills, provider.SkillItem{
@@ -78,23 +77,4 @@ func (p *CodexProvider) PurgeSkills() (int, error) {
 		}
 	}
 	return count, nil
-}
-
-func extractSkillDescription(content string) string {
-	lines := strings.Split(content, "\n")
-	inFrontmatter := false
-	for _, l := range lines {
-		trimmed := strings.TrimSpace(l)
-		if trimmed == "---" {
-			if inFrontmatter {
-				break
-			}
-			inFrontmatter = true
-			continue
-		}
-		if inFrontmatter && strings.HasPrefix(trimmed, "description:") {
-			return strings.TrimSpace(strings.TrimPrefix(trimmed, "description:"))
-		}
-	}
-	return ""
 }

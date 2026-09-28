@@ -104,3 +104,100 @@ func CopyDir(src, dst string) error {
 		return closeErr
 	})
 }
+
+// SizeOf returns the total size of a file, or of every regular file under a
+// directory. A path that does not exist is 0 with no error: the caller is
+// measuring what would be freed, and nothing is.
+func SizeOf(path string) (int64, error) {
+	info, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		return 0, nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	if !info.IsDir() {
+		return info.Size(), nil
+	}
+	var total int64
+	err = filepath.WalkDir(path, func(_ string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		if info.Mode().IsRegular() {
+			total += info.Size()
+		}
+		return nil
+	})
+	return total, err
+}
+
+// RemoveUnder deletes path, which must resolve inside root. It reports the
+// bytes freed, and whether anything was there to delete.
+//
+// The confinement is the point: a provider deletes paths derived from data it
+// scanned — a workspace directory name, a rollout path read out of a database —
+// and a value that escapes the provider's own data directory must not be
+// followed. It goes through os.OpenRoot so the check cannot be defeated by a
+// symlink swapped in between the check and the delete.
+func RemoveUnder(root, path string) (freed int64, existed bool, err error) {
+	rel, err := relativeWithin(root, path)
+	if err != nil {
+		return 0, false, err
+	}
+
+	absPath := filepath.Join(root, rel)
+	freed, err = SizeOf(absPath)
+	if err != nil {
+		return 0, false, err
+	}
+	if _, statErr := os.Lstat(absPath); statErr != nil {
+		if os.IsNotExist(statErr) {
+			return 0, false, nil
+		}
+		return 0, false, statErr
+	}
+
+	opened, err := os.OpenRoot(root)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, false, nil
+		}
+		return 0, false, err
+	}
+	defer opened.Close()
+
+	if err := opened.RemoveAll(rel); err != nil {
+		return 0, false, fmt.Errorf("removing %s: %w", path, err)
+	}
+	return freed, true, nil
+}
+
+// relativeWithin resolves path against root and rejects anything outside it.
+func relativeWithin(root, path string) (string, error) {
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return "", err
+	}
+	absPath := path
+	if !filepath.IsAbs(absPath) {
+		absPath = filepath.Join(absRoot, absPath)
+	}
+	absPath = filepath.Clean(absPath)
+
+	rel, err := filepath.Rel(absRoot, absPath)
+	if err != nil {
+		return "", err
+	}
+	if rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("refusing to delete %q: outside %q", path, absRoot)
+	}
+	return rel, nil
+}

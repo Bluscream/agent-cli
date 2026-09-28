@@ -358,12 +358,7 @@ func RemoteConversation(ctx context.Context, cfg *Config, sessionID string) (*pr
 			ToolCall:  payload.ToolName,
 			Timestamp: stamp,
 		})
-		if payload.Role == "user" && detail.InitialPrompt == "" {
-			detail.InitialPrompt = payload.Content
-		}
-		if payload.Role == "assistant" && strings.TrimSpace(payload.Content) != "" {
-			detail.LastResponse = payload.Content
-		}
 	}
+	detail.InitialPrompt, detail.LastResponse = provider.Endpoints(detail.Turns)
 	return detail, nil
 }

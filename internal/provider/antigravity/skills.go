@@ -5,7 +5,6 @@ import (
 	"agentcli.local/ai/internal/provider"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 func (p *AntigravityProvider) ListSkills() ([]provider.SkillItem, error) {
@@ -33,7 +32,7 @@ func (p *AntigravityProvider) ListSkills() ([]provider.SkillItem, error) {
 			skillMD := filepath.Join(skillDir, "SKILL.md")
 			desc := ""
 			if content, err := os.ReadFile(skillMD); err == nil {
-				desc = extractSkillDescription(string(content))
+				desc = provider.SkillDescription(string(content))
 			}
 
 			rulesCount := 0
@@ -82,23 +81,4 @@ func (p *AntigravityProvider) PurgeSkills() (int, error) {
 		}
 	}
 	return count, nil
-}
-
-func extractSkillDescription(content string) string {
-	lines := strings.Split(content, "\n")
-	inFrontmatter := false
-	for _, l := range lines {
-		trimmed := strings.TrimSpace(l)
-		if trimmed == "---" {
-			if inFrontmatter {
-				break
-			}
-			inFrontmatter = true
-			continue
-		}
-		if inFrontmatter && strings.HasPrefix(trimmed, "description:") {
-			return strings.TrimSpace(strings.TrimPrefix(trimmed, "description:"))
-		}
-	}
-	return ""
 }
