@@ -1,20 +1,18 @@
 package codex
 
 import (
+	"bufio"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
 	"agentcli.local/ai/internal/gitutil"
 	"agentcli.local/ai/internal/idutil"
 	"agentcli.local/ai/internal/provider"
 	"agentcli.local/ai/internal/sqlite"
-	"bufio"
-	"bytes"
-	"encoding/json"
-	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"strconv"
-	"strings"
-	"time"
 )
 
 func (p *CodexProvider) ListConversations(opts provider.HistoryOptions) ([]provider.ConversationSummary, error) {
@@ -108,12 +106,10 @@ func (p *CodexProvider) GetConversation(id string) (*provider.ConversationDetail
 	home, _ := os.UserHomeDir()
 	dbPath := filepath.Join(home, ".codex/state_5.sqlite")
 
-	// Get rollout path & artifacts from db
-	cmd := exec.Command("sqlite3", dbPath, fmt.Sprintf("SELECT rollout_path FROM threads WHERE id = '%s';", matched.ID))
-	var rolloutOut bytes.Buffer
-	cmd.Stdout = &rolloutOut
-	_ = cmd.Run()
-	rolloutPath := strings.TrimSpace(rolloutOut.String())
+	// ListConversations already read rollout_path from this same table, so the
+	// path is in hand; re-querying it discarded the error and turned a failed
+	// query into a conversation that reported zero turns.
+	rolloutPath := matched.TranscriptPath
 
 	// Read turns from rollout JSONL
 	turns, msgCount := readRolloutTurns(rolloutPath, 0)
@@ -132,26 +128,9 @@ func (p *CodexProvider) GetConversation(id string) (*provider.ConversationDetail
 		initPrompt = matched.Title
 	}
 
-	// Fetch artifacts for thread
-	var artifacts []provider.ArtifactInfo
-	artCmd := exec.Command("sqlite3", "-separator", "\x1f", dbPath, fmt.Sprintf("SELECT id, artifact_type, identity_key, length(payload), created_at FROM thread_artifacts WHERE thread_id = '%s';", matched.ID))
-	var artOut bytes.Buffer
-	artCmd.Stdout = &artOut
-	if err := artCmd.Run(); err == nil {
-		sc := bufio.NewScanner(&artOut)
-		for sc.Scan() {
-			fields := strings.Split(sc.Text(), "\x1f")
-			if len(fields) >= 5 {
-				sz, _ := strconv.ParseInt(fields[3], 10, 64)
-				created, _ := strconv.ParseInt(fields[4], 10, 64)
-				artifacts = append(artifacts, provider.ArtifactInfo{
-					Name:       fields[2],
-					Type:       fields[1],
-					SizeBytes:  sz,
-					ModifiedAt: time.Unix(created, 0),
-				})
-			}
-		}
+	artifacts, err := threadArtifacts(dbPath, matched.ID)
+	if err != nil {
+		return nil, err
 	}
 	matched.ArtifactsCount = len(artifacts)
 
@@ -166,6 +145,33 @@ func (p *CodexProvider) GetConversation(id string) (*provider.ConversationDetail
 	}
 
 	return detail, nil
+}
+
+// threadArtifacts reads a thread's artifact rows as typed values rather than
+// splitting a separator-delimited dump, which is the parsing internal/sqlite
+// exists to replace.
+func threadArtifacts(dbPath, threadID string) ([]provider.ArtifactInfo, error) {
+	var rows []struct {
+		Type        string `json:"artifact_type"`
+		IdentityKey string `json:"identity_key"`
+		SizeBytes   int64  `json:"size_bytes"`
+		CreatedAt   int64  `json:"created_at"`
+	}
+	const q = `SELECT artifact_type, identity_key, length(payload) AS size_bytes, created_at
+FROM thread_artifacts WHERE thread_id = ?;`
+	if err := sqlite.Query(dbPath, q, &rows, threadID); err != nil {
+		return nil, fmt.Errorf("read artifacts for thread %s: %w", threadID, err)
+	}
+	artifacts := make([]provider.ArtifactInfo, 0, len(rows))
+	for _, r := range rows {
+		artifacts = append(artifacts, provider.ArtifactInfo{
+			Name:       r.IdentityKey,
+			Type:       r.Type,
+			SizeBytes:  r.SizeBytes,
+			ModifiedAt: time.Unix(r.CreatedAt, 0),
+		})
+	}
+	return artifacts, nil
 }
 
 func (p *CodexProvider) AuditConversation(id string) (*provider.AuditDossier, error) {

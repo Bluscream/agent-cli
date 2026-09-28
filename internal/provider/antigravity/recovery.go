@@ -6,11 +6,12 @@ import (
 	"encoding/base64"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
+
+	"agentcli.local/ai/internal/sqlite"
 )
 
 type RecoveryReport struct {
@@ -37,21 +38,13 @@ func Recover(dryRun bool, cleanGhosts bool) (*RecoveryReport, error) {
 
 	report := &RecoveryReport{DryRun: dryRun}
 
-	// 1. Fetch current trajectorySummaries base64 from state.vscdb
-	queryCmd := exec.Command("sqlite3", dbPath, "SELECT value FROM ItemTable WHERE key = 'antigravityUnifiedStateSync.trajectorySummaries';")
-	var valOut bytes.Buffer
-	queryCmd.Stdout = &valOut
-	if err := queryCmd.Run(); err != nil {
-		return nil, fmt.Errorf("failed to query state.vscdb: %w", err)
-	}
-	rawB64 := strings.TrimSpace(valOut.String())
+	// 1. Fetch current trajectorySummaries from state.vscdb. A missing key is
+	// an empty index, which is recoverable; a database that would not open is
+	// not, so only the first is tolerated.
+	rawBytes, readErr := readVscdbB64Proto(dbPath, trajectorySummariesKey)
 
 	originalEntriesMap := make(map[string][]byte)
-	if rawB64 != "" {
-		rawBytes, err := base64.StdEncoding.DecodeString(rawB64)
-		if err != nil {
-			return nil, fmt.Errorf("invalid trajectory index: %w", err)
-		}
+	if readErr == nil {
 		parsed, err := extractMapEntries(rawBytes)
 		if err != nil {
 			return nil, fmt.Errorf("invalid trajectory index: %w", err)
@@ -147,15 +140,14 @@ func Recover(dryRun bool, cleanGhosts bool) (*RecoveryReport, error) {
 
 	// 6. Write backup and commit to sqlite
 	backupPath := fmt.Sprintf("%s.bak.%d", dbPath, time.Now().Unix())
-	if err := exec.Command("sqlite3", dbPath, fmt.Sprintf(".backup '%s'", strings.ReplaceAll(backupPath, "'", "''"))).Run(); err != nil {
+	if err := sqlite.Backup(dbPath, backupPath); err != nil {
 		return nil, fmt.Errorf("failed to create db backup: %w", err)
 	}
 
 	report.BackupPath = backupPath
 
 	updatedB64 := base64.StdEncoding.EncodeToString(finalBytes.Bytes())
-	updateCmd := exec.Command("sqlite3", dbPath, fmt.Sprintf("UPDATE ItemTable SET value = '%s' WHERE key = 'antigravityUnifiedStateSync.trajectorySummaries';", updatedB64))
-	if err := updateCmd.Run(); err != nil {
+	if err := sqlite.Exec(dbPath, "UPDATE ItemTable SET value = ? WHERE key = ?;", updatedB64, trajectorySummariesKey); err != nil {
 		return nil, fmt.Errorf("failed to update state.vscdb: %w", err)
 	}
 

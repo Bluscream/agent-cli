@@ -1,19 +1,18 @@
 package antigravity
 
 import (
-	"agentcli.local/ai/internal/gitutil"
-	"agentcli.local/ai/internal/idutil"
-	"agentcli.local/ai/internal/provider"
-	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
 	"time"
+
+	"agentcli.local/ai/internal/gitutil"
+	"agentcli.local/ai/internal/idutil"
+	"agentcli.local/ai/internal/provider"
 )
 
 func (p *AntigravityProvider) ListConversations(opts provider.HistoryOptions) ([]provider.ConversationSummary, error) {
@@ -25,17 +24,13 @@ func (p *AntigravityProvider) ListConversations(opts provider.HistoryOptions) ([
 	// Read state.vscdb trajectory summaries
 	convoMap := make(map[string]*provider.ConversationSummary)
 
-	queryCmd := exec.Command("sqlite3", dbPath, "SELECT value FROM ItemTable WHERE key = 'antigravityUnifiedStateSync.trajectorySummaries';")
-	var valOut bytes.Buffer
-	queryCmd.Stdout = &valOut
-	if err := queryCmd.Run(); err == nil {
-		rawB64 := strings.TrimSpace(valOut.String())
-		if rawBytes, err := base64.StdEncoding.DecodeString(rawB64); err == nil {
-			entries, _ := extractMapEntries(rawBytes)
-			for cid, sub := range entries {
-				s := parseTrajectorySummary(cid, sub)
-				convoMap[cid] = s
-			}
+	// A state.vscdb that cannot be read is not fatal: the brain directory below
+	// is an independent source of sessions, so listing degrades rather than
+	// failing outright.
+	if rawBytes, err := readVscdbB64Proto(dbPath, trajectorySummariesKey); err == nil {
+		entries, _ := extractMapEntries(rawBytes)
+		for cid, sub := range entries {
+			convoMap[cid] = parseTrajectorySummary(cid, sub)
 		}
 	}
 

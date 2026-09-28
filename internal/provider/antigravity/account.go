@@ -1,17 +1,18 @@
 package antigravity
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
 
 	"agentcli.local/ai/internal/fsutil"
+	"agentcli.local/ai/internal/sqlite"
 )
 
 var saveKeys = []string{
@@ -103,13 +104,16 @@ func SaveProfile(profileName string) error {
 		_ = json.Unmarshal(existing, &doc)
 	}
 
+	// A key the IDE has not written yet is simply absent, but a database that
+	// will not open means the saved profile would silently be missing its
+	// token — which only shows up later, as a switch that logs in as nobody.
 	for _, key := range saveKeys {
-		cmd := exec.Command("sqlite3", dbFile, fmt.Sprintf("SELECT value FROM ItemTable WHERE key='%s';", key))
-		var out bytes.Buffer
-		cmd.Stdout = &out
-		if err := cmd.Run(); err == nil {
-			v := strings.TrimSpace(out.String())
-			if v != "" {
+		rows, err := sqlite.Scalar(dbFile, "SELECT value FROM ItemTable WHERE key = ?;", key)
+		if err != nil {
+			return fmt.Errorf("read %s from %s: %w", key, dbFile, err)
+		}
+		if len(rows) > 0 {
+			if v := strings.TrimSpace(rows[0]); v != "" {
 				doc.DB[key] = v
 			}
 		}
@@ -175,10 +179,11 @@ func SwitchProfile(profileName string) error {
 	home, _ := os.UserHomeDir()
 	dbFile := filepath.Join(home, ".config/Antigravity IDE/User/globalStorage/state.vscdb")
 
-	for k, v := range doc.DB {
-		escaped := strings.ReplaceAll(v, "'", "''")
-		query := fmt.Sprintf("INSERT OR REPLACE INTO ItemTable (key, value) VALUES ('%s', '%s');", k, escaped)
-		_ = exec.Command("sqlite3", dbFile, query).Run()
+	// One transaction, and the error is returned: writing nothing because the
+	// database was locked or sqlite3 was missing used to be reported as a
+	// successful switch, after which the IDE relaunched with the old session.
+	if err := writeStateKeys(dbFile, doc.DB); err != nil {
+		return fmt.Errorf("switch to profile %q: %w", profileName, err)
 	}
 
 	// Launch IDE
@@ -191,12 +196,50 @@ func FreshSession() error {
 	home, _ := os.UserHomeDir()
 	dbFile := filepath.Join(home, ".config/Antigravity IDE/User/globalStorage/state.vscdb")
 
-	for _, key := range saveKeys {
-		query := fmt.Sprintf("DELETE FROM ItemTable WHERE key='%s';", key)
-		_ = exec.Command("sqlite3", dbFile, query).Run()
+	if err := deleteStateKeys(dbFile, saveKeys); err != nil {
+		return fmt.Errorf("clear the current session: %w", err)
 	}
 
 	return LaunchAntigravity()
+}
+
+// writeStateKeys replaces the given ItemTable keys in one transaction, so a
+// partial write cannot leave one profile's token beside another's user status.
+func writeStateKeys(dbFile string, values map[string]string) error {
+	if len(values) == 0 {
+		return nil
+	}
+	// Sorted so a failure is reproducible and the statement is stable.
+	keys := make([]string, 0, len(values))
+	for k := range values {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	var stmt strings.Builder
+	stmt.WriteString("BEGIN IMMEDIATE;\n")
+	args := make([]string, 0, len(keys)*2)
+	for _, k := range keys {
+		stmt.WriteString("INSERT OR REPLACE INTO ItemTable (key, value) VALUES (?, ?);\n")
+		args = append(args, k, values[k])
+	}
+	stmt.WriteString("COMMIT;\n")
+	return sqlite.Exec(dbFile, stmt.String(), args...)
+}
+
+// deleteStateKeys removes the given ItemTable keys in one transaction. A
+// partially cleared session is still a signed-in session.
+func deleteStateKeys(dbFile string, keys []string) error {
+	if len(keys) == 0 {
+		return nil
+	}
+	var stmt strings.Builder
+	stmt.WriteString("BEGIN IMMEDIATE;\n")
+	for range keys {
+		stmt.WriteString("DELETE FROM ItemTable WHERE key = ?;\n")
+	}
+	stmt.WriteString("COMMIT;\n")
+	return sqlite.Exec(dbFile, stmt.String(), keys...)
 }
 
 func StopAntigravity() {

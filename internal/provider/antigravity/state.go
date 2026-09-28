@@ -1,28 +1,35 @@
 package antigravity
 
 import (
-	"bytes"
 	"encoding/base64"
 	"fmt"
-	"os/exec"
 	"strings"
+
+	"agentcli.local/ai/internal/sqlite"
 )
 
-// readVscdbB64Proto queries a key from the Antigravity IDE state.vscdb via
-// sqlite3 and returns the outer protobuf bytes (already base64-decoded).
+// readVscdbB64Proto reads a key from the Antigravity IDE state.vscdb and
+// returns the outer protobuf bytes (already base64-decoded). This is the only
+// reader for that table: ListConversations and Recover both go through it
+// rather than issuing the same select again.
 func readVscdbB64Proto(dbPath, key string) ([]byte, error) {
-	var out bytes.Buffer
-	cmd := exec.Command("sqlite3", dbPath, fmt.Sprintf("SELECT value FROM ItemTable WHERE key='%s';", key))
-	cmd.Stdout = &out
-	if err := cmd.Run(); err != nil {
+	rows, err := sqlite.Scalar(dbPath, "SELECT value FROM ItemTable WHERE key = ?;", key)
+	if err != nil {
 		return nil, err
 	}
-	b64 := strings.TrimSpace(out.String())
+	var b64 string
+	if len(rows) > 0 {
+		b64 = strings.TrimSpace(rows[0])
+	}
 	if b64 == "" {
-		return nil, fmt.Errorf("key %q not found", key)
+		return nil, fmt.Errorf("key %q not found in %s", key, dbPath)
 	}
 	return base64.StdEncoding.DecodeString(b64)
 }
+
+// trajectorySummariesKey holds the map of conversation id to trajectory
+// summary. Named once so the three readers of it cannot drift.
+const trajectorySummariesKey = "antigravityUnifiedStateSync.trajectorySummaries"
 
 // extractSentinelMap extracts a map[key]→inner-proto-bytes from the
 // antigravityUnifiedStateSync.* style protobuf format:

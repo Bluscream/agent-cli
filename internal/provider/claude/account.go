@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"agentcli.local/ai/internal/fsutil"
+	"agentcli.local/ai/internal/sqlite"
 )
 
 // ProfileInfo represents summary metadata for an installed Claude profile.
@@ -547,55 +548,40 @@ var authCookieNames = []string{
 	"activitySessionId",
 }
 
+// defaultExecSqlite runs a statement against the cookie database. It stays a
+// package-level variable so tests can inject a fake, but the binary discovery
+// it used to carry now lives in internal/sqlite, as the project's single
+// resolution policy.
 func defaultExecSqlite(cookieDBPath, query string, stdin string) (string, error) {
-	sqlitePath, err := exec.LookPath("sqlite3")
-	if err != nil {
-		home, _ := os.UserHomeDir()
-		candidates := []string{
-			"/var/home/linuxbrew/.linuxbrew/bin/sqlite3",
-			filepath.Join(home, ".local/bin/sqlite3"),
-			filepath.Join(home, ".gemini/antigravity-ide/bin/sqlite3"),
-			"/usr/bin/sqlite3",
-			"/bin/sqlite3",
-		}
-		for _, c := range candidates {
-			if fi, err := os.Stat(c); err == nil && !fi.IsDir() {
-				sqlitePath = c
-				break
-			}
-		}
+	stmt := query
+	if stmt == "" {
+		stmt = stdin
 	}
-	if sqlitePath == "" {
-		sqlitePath = "sqlite3"
-	}
+	return sqlite.Text(cookieDBPath, stmt)
+}
 
-	var cmd *exec.Cmd
-	if query != "" {
-		cmd = exec.Command(sqlitePath, cookieDBPath, query)
-	} else {
-		cmd = exec.Command(sqlitePath, cookieDBPath)
+// authCookieNameList renders authCookieNames for an IN clause. Built once: the
+// three callers previously each joined the list themselves, so a name added to
+// the slice could be extracted and then not cleared.
+func authCookieNameList() string {
+	quoted := make([]string, 0, len(authCookieNames))
+	for _, n := range authCookieNames {
+		quoted = append(quoted, sqlite.Literal(n))
 	}
-	if stdin != "" {
-		cmd.Stdin = strings.NewReader(stdin)
-	}
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", fmt.Errorf("sqlite3 (%s): %w: %s", sqlitePath, err, strings.TrimSpace(string(out)))
-	}
-	return strings.TrimSpace(string(out)), nil
+	return strings.Join(quoted, ",")
 }
 
 func extractAuthCookiesSQL(cookieDBPath string) (string, error) {
 	if _, err := os.Stat(cookieDBPath); err != nil {
 		return "", err
 	}
-	namesList := "'" + strings.Join(authCookieNames, "','") + "'"
+	namesList := authCookieNameList()
 	query := fmt.Sprintf(`SELECT 'INSERT OR REPLACE INTO cookies VALUES(' || creation_utc || ',''' || host_key || ''',''' || top_frame_site_key || ''',''' || name || ''',''' || value || ''',x''' || hex(encrypted_value) || ''',''' || path || ''',' || expires_utc || ',' || is_secure || ',' || is_httponly || ',' || last_access_utc || ',' || has_expires || ',' || is_persistent || ',' || priority || ',' || samesite || ',' || source_scheme || ',' || source_port || ',' || last_update_utc || ',' || source_type || ',' || has_cross_site_ancestor || ');' FROM cookies WHERE name IN (%s);`, namesList)
 	return execSqliteFunc(cookieDBPath, query, "")
 }
 
 func restoreAuthCookies(cookieDBPath, authSQL, fallbackCookiePath string) error {
-	namesList := "'" + strings.Join(authCookieNames, "','") + "'"
+	namesList := authCookieNameList()
 	if authSQL != "" {
 		if _, statErr := os.Stat(cookieDBPath); statErr == nil {
 			deleteQuery := fmt.Sprintf("DELETE FROM cookies WHERE name IN (%s);", namesList)
@@ -615,7 +601,7 @@ func restoreAuthCookies(cookieDBPath, authSQL, fallbackCookiePath string) error 
 }
 
 func clearAuthCookies(cookieDBPath string) error {
-	namesList := "'" + strings.Join(authCookieNames, "','") + "'"
+	namesList := authCookieNameList()
 	if _, statErr := os.Stat(cookieDBPath); statErr == nil {
 		deleteQuery := fmt.Sprintf("DELETE FROM cookies WHERE name IN (%s);", namesList)
 		if _, err := execSqliteFunc(cookieDBPath, deleteQuery, ""); err == nil {

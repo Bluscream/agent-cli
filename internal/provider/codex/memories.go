@@ -1,16 +1,14 @@
 package codex
 
 import (
-	"agentcli.local/ai/internal/provider"
-	"agentcli.local/ai/internal/sqlite"
-	"bytes"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"time"
+
+	"agentcli.local/ai/internal/provider"
+	"agentcli.local/ai/internal/sqlite"
 )
 
 func (p *CodexProvider) ListMemories() ([]provider.MemoryItem, error) {
@@ -70,8 +68,7 @@ func (p *CodexProvider) BackupMemories(destDir string) (string, error) {
 	}
 	destFile := filepath.Join(destDir, fmt.Sprintf("codex-memories-%d.sqlite", time.Now().Unix()))
 
-	cmd := exec.Command("sqlite3", dbPath, fmt.Sprintf(".backup '%s'", destFile))
-	if err := cmd.Run(); err != nil {
+	if err := sqlite.Backup(dbPath, destFile); err != nil {
 		return "", fmt.Errorf("sqlite backup failed: %w", err)
 	}
 	return destFile, nil
@@ -84,15 +81,13 @@ func (p *CodexProvider) PurgeMemories() (int, error) {
 		return 0, nil
 	}
 
-	cmd := exec.Command("sqlite3", dbPath, "DELETE FROM stage1_outputs; SELECT changes();")
-	var out bytes.Buffer
-	cmd.Stdout = &out
-	if err := cmd.Run(); err != nil {
+	// changes() is read back so the caller reports what was actually deleted
+	// rather than assuming the delete applied.
+	rows, err := sqlite.ExecCount(dbPath, "DELETE FROM stage1_outputs;")
+	if err != nil {
 		return 0, fmt.Errorf("failed to purge memories: %w", err)
 	}
-
-	cnt, _ := strconv.Atoi(strings.TrimSpace(out.String()))
-	return cnt, nil
+	return rows, nil
 }
 
 func (p *CodexProvider) ImportMemory(item provider.MemoryItem) error {
@@ -112,15 +107,9 @@ func (p *CodexProvider) ImportMemory(item provider.MemoryItem) error {
 	}
 	nowSec := time.Now().Unix()
 
-	// Escape single quotes for SQLite
-	safeRaw := strings.ReplaceAll(item.Content, "'", "''")
-	safeSummary := strings.ReplaceAll(title, "'", "''")
-	safeTid := strings.ReplaceAll(tid, "'", "''")
-
-	query := fmt.Sprintf(
-		"INSERT OR REPLACE INTO stage1_outputs (thread_id, source_updated_at, raw_memory, rollout_summary, rollout_slug, generated_at) VALUES ('%s', %d, '%s', '%s', '%s', %d);",
-		safeTid, nowSec, safeRaw, safeSummary, safeSummary, nowSec,
-	)
-	cmd := exec.Command("sqlite3", dbPath, query)
-	return cmd.Run()
+	const q = `INSERT OR REPLACE INTO stage1_outputs
+(thread_id, source_updated_at, raw_memory, rollout_summary, rollout_slug, generated_at)
+VALUES (?, ?, ?, ?, ?, ?);`
+	ts := strconv.FormatInt(nowSec, 10)
+	return sqlite.Exec(dbPath, q, tid, ts, item.Content, title, title, ts)
 }
