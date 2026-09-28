@@ -112,6 +112,7 @@ Examples:
 	cmd.Flags().StringVar(&debounceStr, "debounce", "5s", "How long to wait for writes to settle before ingesting in --watch")
 
 	cmd.AddCommand(ingestStatusCommand(o))
+	cmd.AddCommand(ingestVerifyCommand(o))
 	return cmd
 }
 

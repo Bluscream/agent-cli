@@ -251,3 +251,45 @@ func (q *qdrantClient) Upsert(ctx context.Context, name string, points []Point) 
 	}
 	return nil
 }
+
+// Count returns how many points match the filter, exactly rather than
+// estimated: an approximate count cannot answer "is this conversation stored".
+// A nil filter counts the whole collection.
+func (q *qdrantClient) Count(ctx context.Context, name string, filter any) (int64, error) {
+	body := map[string]any{"exact": true}
+	if filter != nil {
+		body["filter"] = filter
+	}
+	var out struct {
+		Count int64 `json:"count"`
+	}
+	if err := q.do(ctx, http.MethodPost, []string{"collections", name, "points", "count"}, nil, body, &out); err != nil {
+		return 0, err
+	}
+	return out.Count, nil
+}
+
+// DeleteByFilter removes every point matching the filter. wait=true so the
+// caller's subsequent count reflects the deletion rather than racing it.
+//
+// A nil filter is rejected: Qdrant would read that as "delete everything",
+// and this is the one operation where an accidentally empty filter is
+// unrecoverable.
+func (q *qdrantClient) DeleteByFilter(ctx context.Context, name string, filter any) error {
+	if filter == nil {
+		return fmt.Errorf("refusing to delete from %q with no filter", name)
+	}
+	wait := url.Values{"wait": []string{"true"}}
+	body := map[string]any{"filter": filter}
+	return q.do(ctx, http.MethodPost, []string{"collections", name, "points", "delete"}, wait, body, nil)
+}
+
+// DeleteCollection removes the collection entirely. Absent is success: the
+// caller asked for it to be gone.
+func (q *qdrantClient) DeleteCollection(ctx context.Context, name string) error {
+	err := q.do(ctx, http.MethodDelete, []string{"collections", name}, nil, nil, nil)
+	if err != nil && (strings.Contains(err.Error(), "404") || strings.Contains(err.Error(), "Not Found")) {
+		return nil
+	}
+	return err
+}
