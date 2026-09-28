@@ -31,6 +31,32 @@ type ProviderInfo struct {
 // a partial count; the detail view (GetConversation) fills in the true value.
 const CountUnknown = -1
 
+// SizeUnknown marks a size that is not available, as distinct from zero bytes.
+// A remote record carries no file size, and rendering that as 0 B would read as
+// an empty transcript. It shared CountUnknown's value as a bare -1 at three
+// sites with the invariant living only in comments.
+const SizeUnknown int64 = -1
+
+// ParseTimestamp reads a transcript timestamp, returning the zero time when
+// there is none to read.
+//
+// The zero time is the point: two of the three transcript readers substituted
+// time.Now() for a missing timestamp, which turns "this record carried no time"
+// into "this happened just now" and sorts an ancient turn to the top. A caller
+// that needs a stand-in uses the conversation's own last-activity time, which
+// is at least related to the conversation.
+func ParseTimestamp(candidates ...string) time.Time {
+	for _, raw := range candidates {
+		if raw == "" {
+			continue
+		}
+		if stamp, err := time.Parse(time.RFC3339Nano, raw); err == nil {
+			return stamp
+		}
+	}
+	return time.Time{}
+}
+
 type ConversationSummary struct {
 	Provider       string    `json:"provider"`
 	ID             string    `json:"id"`

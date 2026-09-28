@@ -61,18 +61,5 @@ func (p *ClaudeProvider) ImportSkill(sourceDir string) error {
 
 func (p *ClaudeProvider) PurgeSkills() (int, error) {
 	home, _ := os.UserHomeDir()
-	skillsDir := filepath.Join(home, ".claude/skills")
-	entries, err := os.ReadDir(skillsDir)
-	if err != nil {
-		return 0, nil
-	}
-	count := 0
-	for _, e := range entries {
-		if e.IsDir() {
-			if err := os.RemoveAll(filepath.Join(skillsDir, e.Name())); err == nil {
-				count++
-			}
-		}
-	}
-	return count, nil
+	return fsutil.PurgeDirs(filepath.Join(home, ".claude/skills"))
 }

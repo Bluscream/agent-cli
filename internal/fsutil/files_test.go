@@ -91,3 +91,79 @@ func TestCopyPreservesExecutable(t *testing.T) {
 		t.Fatal("accepted recursive destination")
 	}
 }
+
+// The three provider skill purges each open-coded this loop and each reported
+// an unreadable directory as "there were no skills", which makes a failed purge
+// look like a successful one.
+func TestPurgeDirsDistinguishesEmptyFromUnreadable(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "never-created")
+	count, err := PurgeDirs(missing)
+	if err != nil || count != 0 {
+		t.Fatalf("a missing directory gave (%d, %v), want (0, nil)", count, err)
+	}
+
+	// A file where a directory is expected is the readable stand-in for an
+	// unreadable directory; it must be an error, not a silent zero.
+	notADir := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(notADir, []byte("x"), 0600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if _, err := PurgeDirs(notADir); err == nil {
+		t.Fatal("an unreadable directory was reported as empty")
+	}
+}
+
+func TestPurgeDirsRemovesSubdirectoriesAndHonoursKeep(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{"one", "two", ".system"} {
+		if err := os.MkdirAll(filepath.Join(root, name, "nested"), 0755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+	}
+	// A loose file must be left alone: only skill directories are purged.
+	if err := os.WriteFile(filepath.Join(root, "README.md"), []byte("x"), 0600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	count, err := PurgeDirs(root, ".system")
+	if err != nil {
+		t.Fatalf("purge: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("removed %d, want 2", count)
+	}
+	for _, kept := range []string{".system", "README.md"} {
+		if _, err := os.Stat(filepath.Join(root, kept)); err != nil {
+			t.Fatalf("%s was removed: %v", kept, err)
+		}
+	}
+}
+
+func TestSizeOfCountsADirectoryTree(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "nested"), 0755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "a"), []byte("12345"), 0600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "nested", "b"), []byte("123"), 0600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	got, err := SizeOf(root)
+	if err != nil {
+		t.Fatalf("size: %v", err)
+	}
+	if got != 8 {
+		t.Fatalf("got %d bytes, want 8", got)
+	}
+}
+
+// Nothing to free is zero, not an error: the caller is measuring what would go.
+func TestSizeOfMissingPathIsZero(t *testing.T) {
+	got, err := SizeOf(filepath.Join(t.TempDir(), "gone"))
+	if err != nil || got != 0 {
+		t.Fatalf("got (%d, %v), want (0, nil)", got, err)
+	}
+}

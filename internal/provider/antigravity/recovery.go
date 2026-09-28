@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"agentcli.local/ai/internal/provider"
 	"agentcli.local/ai/internal/sqlite"
 )
 
@@ -211,7 +212,7 @@ func extractConvoInfo(cid, convDir, brainDir string) ConvoMeta {
 					parts := strings.Split(line, "<USER_REQUEST>")
 					if len(parts) > 1 {
 						req := strings.Split(parts[1], "</USER_REQUEST>")[0]
-						meta.Title = cleanTitleText(req)
+						meta.Title = provider.CleanTitle(req)
 					}
 				}
 				if meta.Title != "" {

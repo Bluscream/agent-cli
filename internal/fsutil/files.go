@@ -201,3 +201,46 @@ func relativeWithin(root, path string) (string, error) {
 	}
 	return rel, nil
 }
+
+// PurgeDirs removes every subdirectory of dir, skipping the names in keep, and
+// returns how many went.
+//
+// Removals go through Remove, so each is confined to dir via os.OpenRoot. The
+// three provider skill purges each open-coded this loop with os.RemoveAll on a
+// joined path, and none of them had the confinement their sibling plugin
+// uninstallers already used.
+//
+// A directory that does not exist is 0 with no error — there was nothing to
+// purge. An unreadable one is an error: reporting it as "there were no skills"
+// is the swallow that makes a failed purge look like a successful one.
+func PurgeDirs(dir string, keep ...string) (int, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("reading %s: %w", dir, err)
+	}
+
+	skip := make(map[string]bool, len(keep))
+	for _, name := range keep {
+		skip[name] = true
+	}
+
+	count := 0
+	var failures []string
+	for _, entry := range entries {
+		if !entry.IsDir() || skip[entry.Name()] {
+			continue
+		}
+		if err := Remove(dir, entry.Name()); err != nil {
+			failures = append(failures, fmt.Sprintf("%s: %v", entry.Name(), err))
+			continue
+		}
+		count++
+	}
+	if len(failures) > 0 {
+		return count, fmt.Errorf("could not remove %s from %s", strings.Join(failures, "; "), dir)
+	}
+	return count, nil
+}

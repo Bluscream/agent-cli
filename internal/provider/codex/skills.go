@@ -63,18 +63,6 @@ func (p *CodexProvider) ImportSkill(sourceDir string) error {
 
 func (p *CodexProvider) PurgeSkills() (int, error) {
 	home, _ := os.UserHomeDir()
-	skillsDir := filepath.Join(home, ".codex/skills")
-	entries, err := os.ReadDir(skillsDir)
-	if err != nil {
-		return 0, nil
-	}
-	count := 0
-	for _, e := range entries {
-		if e.IsDir() && e.Name() != ".system" {
-			if err := os.RemoveAll(filepath.Join(skillsDir, e.Name())); err == nil {
-				count++
-			}
-		}
-	}
-	return count, nil
+	// .system holds Codex's built-in skills, which are not the user's to purge.
+	return fsutil.PurgeDirs(filepath.Join(home, ".codex/skills"), ".system")
 }

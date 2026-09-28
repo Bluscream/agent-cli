@@ -1,13 +1,16 @@
 package antigravity
 
 import (
-	"agentcli.local/ai/internal/idutil"
-	"agentcli.local/ai/internal/provider"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
+
+	"agentcli.local/ai/internal/fsutil"
+	"agentcli.local/ai/internal/idutil"
+	"agentcli.local/ai/internal/provider"
 )
 
 func (p *AntigravityProvider) ListMemories() ([]provider.MemoryItem, error) {
@@ -90,14 +93,29 @@ func (p *AntigravityProvider) PurgeMemories() (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return 0, err
+	}
+	// The paths come from scanning the memories tree, so removal is confined to
+	// it rather than following whatever a scanned path resolved to.
+	root := filepath.Join(home, ".gemini")
+
 	count := 0
+	var failures []string
 	for _, item := range items {
-		if item.SourceFile != "" {
-			parent := filepath.Dir(item.SourceFile)
-			if err := os.RemoveAll(parent); err == nil {
-				count++
-			}
+		if item.SourceFile == "" {
+			continue
 		}
+		parent := filepath.Dir(item.SourceFile)
+		if _, _, err := fsutil.RemoveUnder(root, parent); err != nil {
+			failures = append(failures, err.Error())
+			continue
+		}
+		count++
+	}
+	if len(failures) > 0 {
+		return count, fmt.Errorf("could not remove %s", strings.Join(failures, "; "))
 	}
 	return count, nil
 }

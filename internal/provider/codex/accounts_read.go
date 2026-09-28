@@ -1,6 +1,7 @@
 package codex
 
 import (
+	"agentcli.local/ai/internal/idutil"
 	"agentcli.local/ai/internal/provider"
 	"encoding/json"
 	"fmt"
@@ -41,10 +42,10 @@ func (p *CodexProvider) GetActiveAccount() (*provider.AccountInfo, error) {
 		}
 	}
 
-	displayID := accID
-	if len(displayID) > 8 {
-		displayID = displayID[:8]
-	}
+	// idutil.ShortID is the project's short identifier. This used to take the
+	// raw id's first eight characters, so `ai account list` showed a Codex
+	// account under an identifier no other row in the same table would produce.
+	displayID := idutil.ShortID(accID)
 	if displayID == "" {
 		displayID = "active"
 	}

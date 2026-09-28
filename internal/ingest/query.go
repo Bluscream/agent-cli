@@ -211,7 +211,7 @@ func collect(byID map[string]*provider.ConversationSummary, order *[]string, pay
 			MessagesCount: 1,
 			// A remote record has no transcript file, so its size is unknown
 			// rather than zero.
-			TotalSizeBytes: -1,
+			TotalSizeBytes: provider.SizeUnknown,
 			CreatedAt:      stamp,
 			UpdatedAt:      stamp,
 		}
@@ -336,7 +336,7 @@ func RemoteConversation(ctx context.Context, cfg *Config, sessionID string) (*pr
 			Title:          payloads[0].Title,
 			WorkspaceDir:   payloads[0].ProjectPath,
 			MessagesCount:  len(payloads),
-			TotalSizeBytes: -1,
+			TotalSizeBytes: provider.SizeUnknown,
 		},
 	}
 

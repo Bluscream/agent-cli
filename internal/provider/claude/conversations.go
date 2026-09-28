@@ -277,7 +277,7 @@ func parseClaudeTranscript(path, sessionID, wsDir string, fi os.FileInfo) *provi
 					}
 				}
 			}
-			title := cleanTitleText(contentStr)
+			title := provider.CleanTitle(contentStr)
 			if title != "" {
 				summary.Title = title
 			}
@@ -422,16 +422,9 @@ func readClaudeTurns(path string, limit int) ([]provider.TurnInfo, int) {
 			continue
 		}
 
-		ts := time.Now()
-		tsStr := obj.Timestamp
-		if tsStr == "" {
-			tsStr = obj.CreatedAt
-		}
-		if tsStr != "" {
-			if t, err := time.Parse(time.RFC3339Nano, tsStr); err == nil {
-				ts = t
-			}
-		}
+		// Left as the zero time when the record carries none: reporting now()
+		// would sort an undated turn ahead of everything real.
+		ts := provider.ParseTimestamp(obj.Timestamp, obj.CreatedAt)
 
 		turn := provider.TurnInfo{
 			StepIndex:      step,
@@ -457,20 +450,6 @@ func readClaudeTurns(path string, limit int) ([]provider.TurnInfo, int) {
 	}
 
 	return turns, step
-}
-
-func cleanTitleText(text string) string {
-	lines := strings.Split(text, "\n")
-	for _, l := range lines {
-		t := strings.TrimSpace(l)
-		if t != "" && !strings.HasPrefix(t, "file://") {
-			if len(t) > 80 {
-				t = t[:80]
-			}
-			return t
-		}
-	}
-	return ""
 }
 
 // TranscriptRoots implements provider.TranscriptRooter.

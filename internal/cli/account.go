@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"agentcli.local/ai/internal/idutil"
 	"agentcli.local/ai/internal/provider"
 	"agentcli.local/ai/internal/provider/antigravity"
 	"agentcli.local/ai/internal/provider/claude"
@@ -214,9 +215,11 @@ func listAccounts(o *options, cmd *cobra.Command, targetProvider string) error {
 
 	for _, a := range allAccounts {
 		nameCell := a.DisplayName
+		// One scheme for the whole table. The previous rule printed an id of
+		// 9 to 12 characters in full and cut a 13-character one to 8.
 		idStr := a.ID
-		if len(idStr) > 12 {
-			idStr = idStr[:8]
+		if idStr != "" && idStr != "active" {
+			idStr = idutil.ShortID(a.ID)
 		}
 		if idStr != "" && idStr != "active" && !strings.Contains(a.DisplayName, idStr) {
 			nameCell = fmt.Sprintf("%s (%s)", a.DisplayName, idStr)

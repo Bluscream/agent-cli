@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"encoding/base64"
 	"errors"
-	"regexp"
-	"strings"
 )
 
 type wireField struct {
@@ -110,39 +108,6 @@ func encodeFieldBytes(fn int, data []byte) []byte {
 	out = append(out, encodeVarint(uint64(len(data)))...)
 	out = append(out, data...)
 	return out
-}
-
-var stripTitleRegexp = regexp.MustCompile(`^[#*\-=>\s]+`)
-
-func cleanTitleText(text string) string {
-	if text == "" {
-		return ""
-	}
-	// Replace literal escaped newlines and tabs from JSON/serialized strings
-	text = strings.ReplaceAll(text, `\r\n`, "\n")
-	text = strings.ReplaceAll(text, `\n`, "\n")
-	text = strings.ReplaceAll(text, `\t`, " ")
-	text = strings.ReplaceAll(text, `\"`, "\"")
-
-	lines := strings.Split(text, "\n")
-	var candidate string
-	for _, l := range lines {
-		trimmed := strings.TrimSpace(l)
-		cleaned := stripTitleRegexp.ReplaceAllString(trimmed, "")
-		cleaned = strings.TrimSpace(cleaned)
-		if cleaned != "" && !strings.HasPrefix(cleaned, "file://") {
-			candidate = cleaned
-			break
-		}
-	}
-	if candidate == "" && len(lines) > 0 {
-		candidate = stripTitleRegexp.ReplaceAllString(strings.TrimSpace(lines[0]), "")
-	}
-	candidate = strings.TrimSpace(candidate)
-	if len(candidate) > 80 {
-		candidate = candidate[:80]
-	}
-	return candidate
 }
 
 type ConvoMeta struct {

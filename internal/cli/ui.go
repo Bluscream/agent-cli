@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"agentcli.local/ai/internal/provider"
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/jedib0t/go-pretty/v6/text"
 	"golang.org/x/term"
@@ -295,9 +296,9 @@ func humanBytes(b int64) string {
 }
 
 func (o *options) sizeCell(n int64) string {
-	// A negative size means "not known here" (a remote record carries no file
+	// SizeUnknown means "not available here" (a remote record carries no file
 	// size); rendering it as 0 B would read as an empty transcript.
-	if n < 0 {
+	if n <= provider.SizeUnknown {
 		return "-"
 	}
 	if o.format == "csv" {

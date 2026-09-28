@@ -67,18 +67,5 @@ func (p *AntigravityProvider) ImportSkill(sourceDir string) error {
 
 func (p *AntigravityProvider) PurgeSkills() (int, error) {
 	home, _ := os.UserHomeDir()
-	configSkills := filepath.Join(home, ".gemini/config/skills")
-	entries, err := os.ReadDir(configSkills)
-	if err != nil {
-		return 0, nil
-	}
-	count := 0
-	for _, e := range entries {
-		if e.IsDir() {
-			if err := os.RemoveAll(filepath.Join(configSkills, e.Name())); err == nil {
-				count++
-			}
-		}
-	}
-	return count, nil
+	return fsutil.PurgeDirs(filepath.Join(home, ".gemini/config/skills"))
 }

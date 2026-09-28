@@ -1,7 +1,6 @@
 package antigravity
 
 import (
-	"bytes"
 	"testing"
 )
 
@@ -46,23 +45,5 @@ func TestBuildSummaryEntry(t *testing.T) {
 	}
 	if _, ok := entries[meta.ID]; !ok {
 		t.Errorf("expected conversation %s in map, got %v", meta.ID, entries)
-	}
-}
-
-func TestCleanTitleText(t *testing.T) {
-	tests := []struct {
-		input  string
-		expect string
-	}{
-		{"# Hello world\nSome other text", "Hello world"},
-		{"* file:///some/path\nSecond line", "Second line"},
-		{"  -- fix the audio settings", "fix the audio settings"},
-	}
-
-	for _, tt := range tests {
-		res := cleanTitleText(tt.input)
-		if !bytes.Equal([]byte(res), []byte(tt.expect)) {
-			t.Errorf("cleanTitleText(%q) = %q, expected %q", tt.input, res, tt.expect)
-		}
 	}
 }

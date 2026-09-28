@@ -288,12 +288,9 @@ func readRolloutTurns(path string, limit int) ([]provider.TurnInfo, int) {
 			continue
 		}
 
-		ts := time.Now()
-		if obj.Timestamp != "" {
-			if t, err := time.Parse(time.RFC3339Nano, obj.Timestamp); err == nil {
-				ts = t
-			}
-		}
+		// Left as the zero time when the record carries none: reporting now()
+		// would sort an undated turn ahead of everything real.
+		ts := provider.ParseTimestamp(obj.Timestamp)
 
 		all = append(all, provider.TurnInfo{
 			StepIndex:      step,

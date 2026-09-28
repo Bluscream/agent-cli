@@ -87,7 +87,7 @@ func (p *AntigravityProvider) ListConversations(opts provider.HistoryOptions) ([
 		if opts.Search != "" && !strings.Contains(strings.ToLower(c.Title), strings.ToLower(opts.Search)) && !idutil.Match(opts.Search, c.ID) {
 			continue
 		}
-		c.Title = cleanTitleText(c.Title)
+		c.Title = provider.CleanTitle(c.Title)
 		results = append(results, *c)
 	}
 
