@@ -8,10 +8,11 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-	"syscall"
 	"time"
 
+	"agentcli.local/ai/internal/desktop"
 	"agentcli.local/ai/internal/fsutil"
+	"agentcli.local/ai/internal/proc"
 	"agentcli.local/ai/internal/sqlite"
 )
 
@@ -132,27 +133,26 @@ func SaveProfile(profileName string) error {
 		return err
 	}
 
-	// Update Desktop shortcut
-	desktopDir := filepath.Join(home, "Desktop")
-	_ = os.MkdirAll(desktopDir, 0755)
-	desktopFile := filepath.Join(desktopDir, fmt.Sprintf("antigravity-%s.desktop", profileName))
-	icon := filepath.Join(home, ".local/share/icons/hicolor/512x512/apps/antigravity-ide.png")
-	switcherBin := filepath.Join(home, ".local/bin/antigravity-switcher.sh")
-
-	shortcutContent := fmt.Sprintf(`[Desktop Entry]
-Name=Antigravity (%s)
-Comment=AI Coding Agent IDE - %s profile
-GenericName=Text Editor
-Exec=%s --profile %s %%F
-Icon=%s
-Type=Application
-StartupNotify=false
-StartupWMClass=Antigravity IDE
-Categories=TextEditor;Development;IDE;
-Terminal=false
-`, profileName, profileName, switcherBin, profileName, icon)
-
-	_ = os.WriteFile(desktopFile, []byte(shortcutContent), 0755)
+	// Update Desktop shortcut. It points at this tool's own switch command:
+	// the previous entry invoked ~/.local/bin/antigravity-switcher.sh, a script
+	// this repository does not install, so the launcher did nothing.
+	aiBin := filepath.Join(home, ".local/bin/ai")
+	if _, err := os.Stat(aiBin); err != nil {
+		if p, err := exec.LookPath("ai"); err == nil {
+			aiBin = p
+		}
+	}
+	if err := (desktop.Entry{
+		FileName:   "antigravity-" + profileName,
+		Name:       fmt.Sprintf("Antigravity (%s)", profileName),
+		Comment:    fmt.Sprintf("AI Coding Agent IDE - %s profile", profileName),
+		Exec:       []string{aiBin, "account", "switch", profileName, "-p", "antigravity"},
+		Icon:       filepath.Join(home, ".local/share/icons/hicolor/512x512/apps/antigravity-ide.png"),
+		WMClass:    "Antigravity IDE",
+		Categories: "TextEditor;Development;IDE;",
+	}).WriteToDesktop(); err != nil {
+		return fmt.Errorf("write desktop launcher for %q: %w", profileName, err)
+	}
 	return nil
 }
 
@@ -174,7 +174,11 @@ func SwitchProfile(profileName string) error {
 		return fmt.Errorf("corrupted profile JSON: %w", err)
 	}
 
-	StopAntigravity()
+	// The IDE holds state.vscdb open, so a write that lands while it is running
+	// is either rejected as locked or overwritten on its next flush.
+	if !StopAntigravity() {
+		return fmt.Errorf("antigravity-ide is still running; not overwriting its session data")
+	}
 
 	home, _ := os.UserHomeDir()
 	dbFile := filepath.Join(home, ".config/Antigravity IDE/User/globalStorage/state.vscdb")
@@ -191,7 +195,9 @@ func SwitchProfile(profileName string) error {
 }
 
 func FreshSession() error {
-	StopAntigravity()
+	if !StopAntigravity() {
+		return fmt.Errorf("antigravity-ide is still running; not clearing its session data")
+	}
 
 	home, _ := os.UserHomeDir()
 	dbFile := filepath.Join(home, ".config/Antigravity IDE/User/globalStorage/state.vscdb")
@@ -242,41 +248,25 @@ func deleteStateKeys(dbFile string, keys []string) error {
 	return sqlite.Exec(dbFile, stmt.String(), keys...)
 }
 
-func StopAntigravity() {
-	// 1. Graceful SIGINT (trigger window close & state flush)
-	_ = exec.Command("pkill", "-INT", "-f", "antigravity-ide").Run()
-	for i := 0; i < 6; i++ {
-		time.Sleep(500 * time.Millisecond)
-		if err := exec.Command("pgrep", "-f", "antigravity-ide").Run(); err != nil {
-			return // All processes exited cleanly
-		}
-	}
+// antigravityProcessPattern matches the Antigravity IDE's processes.
+const antigravityProcessPattern = "antigravity-ide"
 
-	// 2. SIGTERM if still lingering
-	_ = exec.Command("pkill", "-TERM", "-f", "antigravity-ide").Run()
-	for i := 0; i < 6; i++ {
-		time.Sleep(500 * time.Millisecond)
-		if err := exec.Command("pgrep", "-f", "antigravity-ide").Run(); err != nil {
-			return // Exited
-		}
-	}
-
-	// 3. Force kill if still hung
-	_ = exec.Command("pkill", "-9", "-f", "antigravity-ide").Run()
-	time.Sleep(500 * time.Millisecond)
+// StopAntigravity terminates the IDE's processes owned by the current user,
+// and reports whether they are gone. It previously signalled every user's
+// antigravity-ide on the machine; the shared helper scopes it to this user, as
+// StopClaude already did.
+func StopAntigravity() bool {
+	return proc.Stop(antigravityProcessPattern)
 }
 
 func LaunchAntigravity() error {
-	execPath := "/var/home/linuxbrew/.linuxbrew/bin/antigravity-ide"
-	if _, err := os.Stat(execPath); err != nil {
-		p, err := exec.LookPath("antigravity-ide")
-		if err != nil {
-			return fmt.Errorf("antigravity-ide executable not found")
-		}
-		execPath = p
-	}
-
-	cmd := exec.Command(execPath)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	return cmd.Start()
+	home, _ := os.UserHomeDir()
+	return proc.Launch("antigravity-ide",
+		[]string{
+			filepath.Join(home, ".local/bin/antigravity-ide"),
+			"/var/home/linuxbrew/.linuxbrew/bin/antigravity-ide",
+			"/home/linuxbrew/.linuxbrew/bin/antigravity-ide",
+		},
+		[]string{"antigravity-ide"},
+	)
 }

@@ -16,7 +16,7 @@ func setupTestClaudeEnvironment(t *testing.T) string {
 	origStop := stopClaudeFunc
 	origLaunch := launchClaudeFunc
 	origSqlite := execSqliteFunc
-	stopClaudeFunc = func() {}
+	stopClaudeFunc = func() bool { return true }
 	launchClaudeFunc = func() error { return nil }
 	execSqliteFunc = func(cookieDBPath, query string, stdin string) (string, error) {
 		return "", nil
@@ -347,5 +347,51 @@ func TestMergeDeviceRegistry(t *testing.T) {
 	}
 	if doc["uuid-0"] != "token-0" || doc["uuid-1"] != "token-1" || doc["uuid-2"] != "token-2" {
 		t.Fatalf("unexpected merged doc: %+v", doc)
+	}
+}
+
+// A switch that cannot stop the application must not write: Claude Desktop
+// holds its config and cookie database open and flushes its own session back
+// over whatever was restored.
+func TestSwitchProfileRefusesWhileClaudeIsRunning(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	profDir := filepath.Join(home, ".local/share/claude-profiles", "work")
+	if err := os.MkdirAll(profDir, 0700); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(profDir, "profile.json"), []byte(`{"name":"work"}`), 0600); err != nil {
+		t.Fatalf("write profile: %v", err)
+	}
+
+	origStop, origLaunch := stopClaudeFunc, launchClaudeFunc
+	launched := false
+	stopClaudeFunc = func() bool { return false }
+	launchClaudeFunc = func() error { launched = true; return nil }
+	t.Cleanup(func() { stopClaudeFunc, launchClaudeFunc = origStop, origLaunch })
+
+	if err := SwitchProfile("work"); err == nil {
+		t.Fatal("expected SwitchProfile to refuse while claude is running")
+	}
+	if launched {
+		t.Fatal("SwitchProfile relaunched claude after refusing to switch")
+	}
+}
+
+func TestFreshSessionRefusesWhileClaudeIsRunning(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+
+	origStop, origLaunch := stopClaudeFunc, launchClaudeFunc
+	launched := false
+	stopClaudeFunc = func() bool { return false }
+	launchClaudeFunc = func() error { launched = true; return nil }
+	t.Cleanup(func() { stopClaudeFunc, launchClaudeFunc = origStop, origLaunch })
+
+	if err := FreshSession(); err == nil {
+		t.Fatal("expected FreshSession to refuse while claude is running")
+	}
+	if launched {
+		t.Fatal("FreshSession relaunched claude after refusing to clear the session")
 	}
 }

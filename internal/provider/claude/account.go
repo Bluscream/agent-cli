@@ -7,12 +7,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
+	"agentcli.local/ai/internal/desktop"
 	"agentcli.local/ai/internal/fsutil"
+	"agentcli.local/ai/internal/proc"
 	"agentcli.local/ai/internal/sqlite"
 )
 
@@ -153,17 +153,7 @@ func SaveProfile(profileName string) error {
 	if cfgData, err := os.ReadFile(cfgSrc); err == nil {
 		var cfgDoc map[string]any
 		if json.Unmarshal(cfgData, &cfgDoc) == nil {
-			meta.ConfigAuth = make(map[string]any)
-			for _, k := range []string{"lastKnownAccountUuid", "oauth:tokenCache", "oauth:tokenCacheV2", "windowSizeWasSignedIn"} {
-				if v, exists := cfgDoc[k]; exists {
-					meta.ConfigAuth[k] = v
-				}
-			}
-			for k, v := range cfgDoc {
-				if strings.HasPrefix(k, "dxt:allowlist") {
-					meta.ConfigAuth[k] = v
-				}
-			}
+			meta.ConfigAuth = extractConfigAuth(cfgDoc)
 		}
 	}
 
@@ -240,7 +230,12 @@ func SwitchProfile(profileName string) error {
 		return fmt.Errorf("corrupted profile metadata for %q: %w", profileName, err)
 	}
 
-	stopClaudeFunc()
+	// A still-running Claude Desktop holds these files open and will write its
+	// own state back over the restored profile, so refusing here is the only
+	// way the switch cannot silently half-apply.
+	if !stopClaudeFunc() {
+		return fmt.Errorf("claude desktop is still running; not overwriting its session data")
+	}
 
 	home, _ := os.UserHomeDir()
 	claudeDataDir := filepath.Join(home, ".config/Claude")
@@ -307,7 +302,9 @@ func SwitchProfile(profileName string) error {
 
 // FreshSession terminates Claude Desktop and wipes auth/session files so the next start is unauthenticated.
 func FreshSession() error {
-	stopClaudeFunc()
+	if !stopClaudeFunc() {
+		return fmt.Errorf("claude desktop is still running; not clearing its session data")
+	}
 
 	home, _ := os.UserHomeDir()
 	claudeDataDir := filepath.Join(home, ".config/Claude")
@@ -323,15 +320,7 @@ func FreshSession() error {
 	if cfgData, err := os.ReadFile(cfgPath); err == nil {
 		var cfgDoc map[string]any
 		if json.Unmarshal(cfgData, &cfgDoc) == nil {
-			delete(cfgDoc, "lastKnownAccountUuid")
-			delete(cfgDoc, "oauth:tokenCache")
-			delete(cfgDoc, "oauth:tokenCacheV2")
-			delete(cfgDoc, "windowSizeWasSignedIn")
-			for k := range cfgDoc {
-				if strings.HasPrefix(k, "dxt:allowlist") {
-					delete(cfgDoc, k)
-				}
-			}
+			stripConfigAuth(cfgDoc)
 			if updated, err := json.MarshalIndent(cfgDoc, "", "  "); err == nil {
 				_ = os.WriteFile(cfgPath, updated, 0600)
 			}
@@ -354,65 +343,26 @@ func FreshSession() error {
 	return launchClaudeFunc()
 }
 
-// StopClaude gracefully terminates Claude Desktop processes owned by the current user.
-func StopClaude() {
-	uid := strconv.Itoa(os.Getuid())
+// claudeProcessPattern matches Claude Desktop, however it was installed.
+const claudeProcessPattern = `claude\.appimage|claude-desktop`
 
-	// 1. Send graceful SIGINT
-	_ = exec.Command("pkill", "-u", uid, "-INT", "-f", "claude\\.appimage|claude-desktop").Run()
-	for i := 0; i < 6; i++ {
-		time.Sleep(500 * time.Millisecond)
-		if err := exec.Command("pgrep", "-u", uid, "-f", "claude\\.appimage|claude-desktop").Run(); err != nil {
-			return // Exited cleanly
-		}
-	}
-
-	// 2. SIGTERM if lingering
-	_ = exec.Command("pkill", "-u", uid, "-TERM", "-f", "claude\\.appimage|claude-desktop").Run()
-	for i := 0; i < 6; i++ {
-		time.Sleep(500 * time.Millisecond)
-		if err := exec.Command("pgrep", "-u", uid, "-f", "claude\\.appimage|claude-desktop").Run(); err != nil {
-			return // Exited cleanly
-		}
-	}
-
-	// 3. SIGKILL as last resort
-	_ = exec.Command("pkill", "-u", uid, "-9", "-f", "claude\\.appimage|claude-desktop").Run()
-	time.Sleep(500 * time.Millisecond)
+// StopClaude gracefully terminates Claude Desktop processes owned by the
+// current user, and reports whether they are gone.
+func StopClaude() bool {
+	return proc.Stop(claudeProcessPattern)
 }
 
 // LaunchClaude starts the Claude Desktop application detached from the current process.
 func LaunchClaude() error {
-	execPath := findClaudeExecutable()
-	if execPath == "" {
-		return fmt.Errorf("claude executable not found")
-	}
-
-	cmd := exec.Command(execPath)
-	cmd.Env = append(os.Environ(), "DESKTOPINTEGRATION=1")
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	return cmd.Start()
-}
-
-func findClaudeExecutable() string {
 	home, _ := os.UserHomeDir()
-	candidates := []string{
-		filepath.Join(home, "AppImages/claude.appimage"),
-		filepath.Join(home, ".local/bin/Claude_Desktop.AppImage"),
-		"/home/blu/AppImages/claude.appimage",
-	}
-	for _, c := range candidates {
-		if fi, err := os.Stat(c); err == nil && !fi.IsDir() {
-			return c
-		}
-	}
-	if p, err := exec.LookPath("claude-desktop"); err == nil {
-		return p
-	}
-	if p, err := exec.LookPath("claude"); err == nil {
-		return p
-	}
-	return ""
+	return proc.Launch("claude",
+		[]string{
+			filepath.Join(home, "AppImages/claude.appimage"),
+			filepath.Join(home, ".local/bin/Claude_Desktop.AppImage"),
+		},
+		[]string{"claude-desktop", "claude"},
+		"DESKTOPINTEGRATION=1",
+	)
 }
 
 func cleanStaleLocks(dir string) {
@@ -485,15 +435,7 @@ func restoreConfigJSON(path string, authKeys map[string]any) error {
 	if doc == nil {
 		doc = make(map[string]any)
 	}
-	delete(doc, "lastKnownAccountUuid")
-	delete(doc, "oauth:tokenCache")
-	delete(doc, "oauth:tokenCacheV2")
-	delete(doc, "windowSizeWasSignedIn")
-	for k := range doc {
-		if strings.HasPrefix(k, "dxt:allowlist") {
-			delete(doc, k)
-		}
-	}
+	stripConfigAuth(doc)
 	for k, v := range authKeys {
 		doc[k] = v
 	}
@@ -505,10 +447,6 @@ func restoreConfigJSON(path string, authKeys map[string]any) error {
 }
 
 func createDesktopShortcut(home, profileName string) error {
-	desktopDir := filepath.Join(home, "Desktop")
-	_ = os.MkdirAll(desktopDir, 0755)
-	desktopFile := filepath.Join(desktopDir, fmt.Sprintf("claude-%s.desktop", profileName))
-
 	icon := filepath.Join(home, "AppImages/.icons/claude")
 	if _, err := os.Stat(icon); err != nil {
 		icon = filepath.Join(home, ".local/share/icons/hicolor/512x512/apps/claude.png")
@@ -521,20 +459,65 @@ func createDesktopShortcut(home, profileName string) error {
 		}
 	}
 
-	content := fmt.Sprintf(`[Desktop Entry]
-Name=Claude (%s)
-Comment=Claude Desktop - %s profile
-GenericName=AI Assistant
-Exec=%s account switch %s -p claude
-Icon=%s
-Type=Application
-StartupNotify=false
-StartupWMClass=com.anthropic.Claude
-Categories=Network;Utility;Development;
-Terminal=false
-`, profileName, profileName, aiBin, profileName, icon)
+	return desktop.Entry{
+		FileName:   "claude-" + profileName,
+		Name:       fmt.Sprintf("Claude (%s)", profileName),
+		Comment:    fmt.Sprintf("Claude Desktop - %s profile", profileName),
+		Exec:       []string{aiBin, "account", "switch", profileName, "-p", "claude"},
+		Icon:       icon,
+		WMClass:    "com.anthropic.Claude",
+		Categories: "Network;Utility;Development;",
+	}.WriteToDesktop()
+}
 
-	return os.WriteFile(desktopFile, []byte(content), 0755)
+// configAuthKeys are the config.json keys that carry a signed-in session.
+// They are named once because the three places that use this set must agree:
+// a key extracted into a saved profile but not stripped leaves a live token
+// behind on a session that reports itself as fresh.
+var configAuthKeys = []string{
+	"lastKnownAccountUuid",
+	"oauth:tokenCache",
+	"oauth:tokenCacheV2",
+	"windowSizeWasSignedIn",
+}
+
+// configAuthPrefixes are key prefixes whose every match is auth state.
+var configAuthPrefixes = []string{"dxt:allowlist"}
+
+// isConfigAuthKey reports whether a config.json key holds session state.
+func isConfigAuthKey(key string) bool {
+	for _, k := range configAuthKeys {
+		if key == k {
+			return true
+		}
+	}
+	for _, p := range configAuthPrefixes {
+		if strings.HasPrefix(key, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// extractConfigAuth copies the auth keys out of a decoded config.json.
+func extractConfigAuth(doc map[string]any) map[string]any {
+	out := make(map[string]any)
+	for k, v := range doc {
+		if isConfigAuthKey(k) {
+			out[k] = v
+		}
+	}
+	return out
+}
+
+// stripConfigAuth removes every auth key from a decoded config.json, leaving
+// the user's preferences in place.
+func stripConfigAuth(doc map[string]any) {
+	for k := range doc {
+		if isConfigAuthKey(k) {
+			delete(doc, k)
+		}
+	}
 }
 
 var authCookieNames = []string{
