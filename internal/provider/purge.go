@@ -2,8 +2,11 @@ package provider
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"time"
+
+	"agentcli.local/ai/internal/fsutil"
 )
 
 // PurgeOptions controls a conversation deletion.
@@ -52,6 +55,39 @@ func (p Purge) Complete() bool { return len(p.Warnings) == 0 }
 // returning, so one unremovable artifact does not abandon the rest.
 func (p *Purge) Warnf(format string, args ...any) {
 	p.Warnings = append(p.Warnings, fmt.Sprintf(format, args...))
+}
+
+// RemovePath deletes one file or directory belonging to this conversation,
+// confined to root, and folds the outcome into the purge. A path that is
+// already gone is not recorded: the report lists what this call removed, not
+// what it looked for.
+//
+// A dry run measures and reports exactly the same paths, so the preview and
+// the real run cannot disagree about what would go.
+func (p *Purge) RemovePath(root, path string, opts PurgeOptions) {
+	if opts.DryRun {
+		size, err := fsutil.SizeOf(path)
+		if err != nil {
+			p.Warnf("measuring %s: %v", path, err)
+			return
+		}
+		if _, statErr := os.Lstat(path); statErr != nil {
+			return
+		}
+		p.RemovedPaths = append(p.RemovedPaths, path)
+		p.FreedBytes += size
+		return
+	}
+
+	freed, existed, err := fsutil.RemoveUnder(root, path)
+	if err != nil {
+		p.Warnf("%v", err)
+		return
+	}
+	if existed {
+		p.RemovedPaths = append(p.RemovedPaths, path)
+		p.FreedBytes += freed
+	}
 }
 
 // ConversationPurger is an optional capability: a provider that can erase a

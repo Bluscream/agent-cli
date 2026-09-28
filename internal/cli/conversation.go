@@ -25,25 +25,8 @@ func conversationCommand(o *options) *cobra.Command {
 				provName = o.provider
 			}
 
-			// Handle --recover flag
 			if recoverFlag {
-				var p provider.Provider
-				var err error
-				if provName != "" {
-					p, err = provider.Get(provName)
-				} else {
-					p, err = provider.Get("antigravity")
-				}
-				if err != nil {
-					return err
-				}
-
-				reportStr, err := p.RecoverConversations(dryRun)
-				if err != nil {
-					return fmt.Errorf("recovery failed: %w", err)
-				}
-				fmt.Fprintln(cmd.OutOrStdout(), reportStr)
-				return nil
+				return runConversationRecover(cmd, provName, dryRun)
 			}
 
 			if len(args) == 0 {
@@ -51,29 +34,17 @@ func conversationCommand(o *options) *cobra.Command {
 			}
 			convoID := args[0]
 
-			var detail *provider.ConversationDetail
-
-			if provName != "" {
-				p, err := provider.Get(provName)
-				if err != nil {
-					return err
-				}
-				d, err := p.GetConversation(convoID)
-				if err != nil {
-					return err
-				}
-				detail = d
-			} else {
-				// Search across all providers
-				for _, p := range provider.All() {
-					d, e := p.GetConversation(convoID)
-					if e == nil && d != nil {
-						detail = d
-						break
-					}
-				}
+			// Locate resolves across providers and errors on an id that
+			// matches more than one, rather than taking whichever provider
+			// registered first.
+			located, err := provider.Locate(provName, convoID)
+			if err != nil {
+				return err
 			}
-
+			detail, err := located.Provider.GetConversation(located.Summary.ID)
+			if err != nil {
+				return err
+			}
 			if detail == nil {
 				return fmt.Errorf("conversation not found: %s", convoID)
 			}
@@ -156,5 +127,25 @@ func conversationCommand(o *options) *cobra.Command {
 	cmd.Flags().BoolVar(&recoverFlag, "recover", false, "Scan disk for unindexed or corrupted conversations and recover them")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Perform scan and show recoverable sessions without modifying files")
 
+	cmd.AddCommand(conversationDeleteCommand(o))
 	return cmd
+}
+
+// runConversationRecover triggers a provider's own index repair. Antigravity is
+// the default because it is the only provider whose index can drift from its
+// transcripts.
+func runConversationRecover(cmd *cobra.Command, providerName string, dryRun bool) error {
+	if providerName == "" {
+		providerName = "antigravity"
+	}
+	p, err := provider.Get(providerName)
+	if err != nil {
+		return err
+	}
+	report, err := p.RecoverConversations(dryRun)
+	if err != nil {
+		return fmt.Errorf("recovery failed: %w", err)
+	}
+	fmt.Fprintln(cmd.OutOrStdout(), report)
+	return nil
 }

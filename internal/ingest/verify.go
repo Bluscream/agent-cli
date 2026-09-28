@@ -316,3 +316,143 @@ func applyCheck(report *VerifyReport, check ConversationCheck) {
 		report.Issues = append(report.Issues, check)
 	}
 }
+
+// CleanupOptions controls a remote cleanup.
+type CleanupOptions struct {
+	// Sessions are the specific session ids to remove. When empty, cleanup
+	// removes every session in the collection with no local conversation.
+	Sessions []string
+	// Provider restricts an orphan sweep to one provider's points.
+	Provider string
+	DryRun   bool
+}
+
+// CleanupResult reports what a cleanup removed.
+type CleanupResult struct {
+	Collection string   `json:"collection"`
+	Endpoint   string   `json:"endpoint"`
+	DryRun     bool     `json:"dry_run"`
+	Sessions   []string `json:"sessions,omitempty"`
+	// Points is the number of points removed, counted before the delete.
+	Points int64 `json:"points"`
+	// PointsBefore and PointsAfter are the collection's totals either side of
+	// the cleanup, or -1 when they could not be read.
+	PointsBefore int64  `json:"points_before"`
+	PointsAfter  int64  `json:"points_after"`
+	Duration     string `json:"duration"`
+}
+
+// Cleanup removes stored points for the given sessions, or for every session
+// with no local conversation when none are named.
+//
+// Deleting by session id rather than by point id means a conversation whose
+// transcript is already gone can still be cleaned up: the local transcript is
+// not needed to know which points belong to it.
+func Cleanup(ctx context.Context, cfg *Config, opts CleanupOptions) (*CleanupResult, error) {
+	client := newQdrantClient(cfg)
+	if err := ensureReachable(ctx, cfg, client); err != nil {
+		return nil, err
+	}
+
+	started := time.Now()
+	result := &CleanupResult{
+		Collection:   cfg.Collection,
+		Endpoint:     cfg.QdrantURL.Redacted(),
+		DryRun:       opts.DryRun,
+		PointsBefore: remotePoints(ctx, client, cfg.Collection),
+		PointsAfter:  -1,
+	}
+
+	sessions := opts.Sessions
+	if len(sessions) == 0 {
+		orphans, err := Orphans(ctx, cfg, opts.Provider)
+		if err != nil {
+			return nil, err
+		}
+		sessions = orphans
+	}
+	result.Sessions = sessions
+	if len(sessions) == 0 {
+		result.PointsAfter = result.PointsBefore
+		result.Duration = time.Since(started).Round(time.Millisecond).String()
+		return result, nil
+	}
+
+	for _, id := range sessions {
+		if err := ctx.Err(); err != nil {
+			return result, err
+		}
+		filter := buildFilter(QueryOptions{Provider: opts.Provider, SessionID: id})
+		// Counted before the delete: afterwards there is nothing left to count,
+		// and the collection total alone cannot attribute the change.
+		count, err := client.Count(ctx, cfg.Collection, filter)
+		if err != nil {
+			return result, fmt.Errorf("counting points for session %s: %w", id, err)
+		}
+		result.Points += count
+
+		if opts.DryRun || count == 0 {
+			continue
+		}
+		if err := client.DeleteByFilter(ctx, cfg.Collection, filter); err != nil {
+			return result, fmt.Errorf("deleting points for session %s: %w", id, err)
+		}
+	}
+
+	if !opts.DryRun {
+		result.PointsAfter = remotePoints(ctx, client, cfg.Collection)
+		// The offset store must forget these sessions too, or a later pass
+		// would consider them up to date and never republish them.
+		if err := forgetSessions(cfg, sessions); err != nil {
+			return result, err
+		}
+	} else {
+		result.PointsAfter = result.PointsBefore
+	}
+	result.Duration = time.Since(started).Round(time.Millisecond).String()
+	return result, nil
+}
+
+// Orphans returns session ids stored in the collection with no local
+// conversation. It lists conversations rather than parsing them, so it is cheap
+// next to a verification pass.
+func Orphans(ctx context.Context, cfg *Config, providerName string) ([]string, error) {
+	client := newQdrantClient(cfg)
+	sessions, err := client.FacetValues(ctx, cfg.Collection, "session_id", maxFacetSessions)
+	if err != nil {
+		return nil, fmt.Errorf("enumerating stored sessions: %w", err)
+	}
+
+	work, listErrors := gatherWork(Options{Provider: providerName})
+	if len(listErrors) > 0 {
+		// Treating an unlistable provider's conversations as absent would
+		// delete every one of them from the collection.
+		return nil, fmt.Errorf("refusing to look for orphans: %s", listErrors[0].Error)
+	}
+	local := make(map[string]bool, len(work))
+	for _, item := range work {
+		local[item.summary.ID] = true
+	}
+
+	var orphans []string
+	for _, id := range sessions {
+		if !local[id] {
+			orphans = append(orphans, id)
+		}
+	}
+	sort.Strings(orphans)
+	return orphans, nil
+}
+
+// forgetSessions drops the offset records for the given sessions.
+func forgetSessions(cfg *Config, sessions []string) error {
+	store := loadOffsets(cfg.OffsetsFile)
+	drop := make(map[string]bool, len(sessions))
+	for _, id := range sessions {
+		drop[id] = true
+	}
+	if !store.forget(cfg.Collection, drop) {
+		return nil
+	}
+	return store.save()
+}

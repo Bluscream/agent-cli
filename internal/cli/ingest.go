@@ -36,6 +36,7 @@ func ingestCommand(o *options) *cobra.Command {
 		dryRun         bool
 		watch          bool
 		debounceStr    string
+		cleanup        bool
 	)
 
 	cmd := &cobra.Command{
@@ -57,7 +58,10 @@ Examples:
   ai ingest --since 2w           # only recently updated conversations
   ai ingest --force              # republish regardless of the offset store
   ai ingest --watch              # keep running and publish as transcripts change
-  ai ingest status               # destination health and local offset state`,
+  ai ingest --cleanup            # remove stored sessions that no longer exist locally
+  ai ingest --cleanup --dry-run  # report what cleanup would remove
+  ai ingest status               # destination health and local offset state
+  ai ingest verify               # check every conversation is stored and readable`,
 			ingest.EnvQdrantURL),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := ingest.LoadConfig()
@@ -71,6 +75,13 @@ Examples:
 			opts := ingest.Options{Provider: targetProvider, Force: force, DryRun: dryRun}
 			if opts.Provider == "" {
 				opts.Provider = o.provider
+			}
+
+			if cleanup {
+				if watch {
+					return errors.New("--cleanup and --watch cannot be combined")
+				}
+				return runIngestCleanup(cmd, o, cfg, opts.Provider, dryRun)
 			}
 			if sinceStr != "" {
 				since, err := ParseSinceDuration(sinceStr)
@@ -109,6 +120,7 @@ Examples:
 	cmd.Flags().BoolVar(&force, "force", false, "Republish conversations even when unchanged since the last pass")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Report what would be published without writing anything")
 	cmd.Flags().BoolVar(&watch, "watch", false, "Keep running, publishing transcripts as they change")
+	cmd.Flags().BoolVar(&cleanup, "cleanup", false, "Delete stored sessions that no longer exist on this machine instead of publishing")
 	cmd.Flags().StringVar(&debounceStr, "debounce", "5s", "How long to wait for writes to settle before ingesting in --watch")
 
 	cmd.AddCommand(ingestStatusCommand(o))
@@ -274,4 +286,51 @@ func orDash(s string) string {
 		return "-"
 	}
 	return s
+}
+
+// runIngestCleanup removes stored sessions with no local conversation.
+//
+// It refuses to proceed when a provider cannot be listed, because a provider
+// whose conversations cannot be read looks identical to a provider with no
+// conversations — and the second reading would delete all of them.
+func runIngestCleanup(cmd *cobra.Command, o *options, cfg *ingest.Config, providerName string, dryRun bool) error {
+	out := cmd.OutOrStdout()
+
+	orphans, err := ingest.Orphans(cmd.Context(), cfg, providerName)
+	if err != nil {
+		return err
+	}
+	if len(orphans) == 0 {
+		fmt.Fprintln(out, green.Sprint("Nothing to clean up: every stored session still exists on this machine."))
+		return nil
+	}
+
+	result, err := ingest.Cleanup(cmd.Context(), cfg, ingest.CleanupOptions{
+		Sessions: orphans,
+		Provider: providerName,
+		DryRun:   dryRun,
+	})
+	if err != nil {
+		return err
+	}
+
+	if o.isJSON() {
+		return o.printJSON(out, result)
+	}
+
+	dt := o.newDetail(out)
+	detailRows(dt,
+		kv("Endpoint", result.Endpoint),
+		kv("Collection", result.Collection),
+		kv("Sessions removed", fmt.Sprintf("%d", len(result.Sessions))),
+		kv("Points removed", fmt.Sprintf("%d", result.Points)),
+		kv("Collection points", fmt.Sprintf("%d → %d", result.PointsBefore, result.PointsAfter)),
+		kv("Duration", result.Duration),
+	)
+	fmt.Fprintln(out, o.renderTable(dt))
+
+	if result.DryRun {
+		fmt.Fprintln(out, yellow.Sprint("Dry run: nothing was deleted. Re-run without --dry-run to remove these."))
+	}
+	return nil
 }

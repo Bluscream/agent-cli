@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -107,4 +108,26 @@ func (s *offsetStore) save() error {
 		return fmt.Errorf("replacing offsets: %w", err)
 	}
 	return nil
+}
+
+// forget drops the records for the given conversation ids in one collection,
+// and reports whether anything changed. Without this a cleaned-up conversation
+// would still look up to date, so a later pass would never republish it.
+//
+// The ids are matched against the conversation half of the key, since the same
+// conversation id can appear under different providers.
+func (s *offsetStore) forget(collection string, ids map[string]bool) bool {
+	changed := false
+	for key, record := range s.Records {
+		if record.Collection != collection {
+			continue
+		}
+		_, conversationID, found := strings.Cut(key, "\x00")
+		if !found || !ids[conversationID] {
+			continue
+		}
+		delete(s.Records, key)
+		changed = true
+	}
+	return changed
 }

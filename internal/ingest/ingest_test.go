@@ -34,7 +34,10 @@ type fakeQdrant struct {
 	// vectors makes a pre-existing collection report a vector config.
 	vectors bool
 	// exists makes the collection appear to already be present.
-	exists bool
+	exists            bool
+	countFilters      []map[string]any
+	deleteFilters     []map[string]any
+	unfilteredDeletes int
 }
 
 // payloadField reads the payload field a filter clause names.
@@ -210,6 +213,10 @@ func (f *fakeQdrant) handle(w http.ResponseWriter, r *http.Request) {
 		f.scroll(w, r)
 	case r.Method == http.MethodPost && pathTail(path) == "facet":
 		f.facet(w)
+	case r.Method == http.MethodPost && strings.HasPrefix(pathTail(path), "points/count"):
+		f.count(w, r)
+	case r.Method == http.MethodPost && strings.HasPrefix(pathTail(path), "points/delete"):
+		f.deletePoints(w, r)
 	case r.Method == http.MethodPut && strings.HasPrefix(pathTail(path), "points"):
 		f.upsert(w, r)
 	default:
@@ -249,6 +256,47 @@ func (f *fakeQdrant) scroll(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewDecoder(r.Body).Decode(&req)
 	f.scrollFilters = append(f.scrollFilters, req.Filter)
 	f.writeScroll(w, req.Limit, req.Filter, req.OrderBy)
+}
+
+// count answers points/count, which is how verify and cleanup learn how many
+// points a session has.
+func (f *fakeQdrant) count(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Filter map[string]any `json:"filter"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	f.countFilters = append(f.countFilters, req.Filter)
+
+	n := 0
+	for id, payload := range f.points {
+		if matchesFilter(id, payload, req.Filter) {
+			n++
+		}
+	}
+	_, _ = w.Write([]byte(`{"result":{"count":` + strconv.Itoa(n) + `}}`))
+}
+
+// deletePoints answers points/delete. A request with no filter is rejected the
+// way Qdrant would treat it — as the whole collection — so a test can prove the
+// client never sends one.
+func (f *fakeQdrant) deletePoints(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Filter map[string]any `json:"filter"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&req)
+	if req.Filter == nil {
+		f.unfilteredDeletes++
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	f.deleteFilters = append(f.deleteFilters, req.Filter)
+
+	for id, payload := range f.points {
+		if matchesFilter(id, payload, req.Filter) {
+			delete(f.points, id)
+		}
+	}
+	_, _ = w.Write([]byte(`{"result":{"status":"acknowledged"}}`))
 }
 
 func (f *fakeQdrant) facet(w http.ResponseWriter) {
