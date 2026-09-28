@@ -12,7 +12,6 @@
 # Add an entry only with a reason it cannot be split now. Most of these are
 # cobra command constructors whose RunE closure holds the whole command body;
 # splitting them is a mechanical but separate change.
-internal/cli/account.go:accountCommand 151
 internal/cli/audit.go:handoffCommand 152
 internal/cli/audit.go:function literal 130
 internal/cli/conversation.go:conversationCommand 148

@@ -2,14 +2,10 @@ package cli
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 
 	"agentcli.local/ai/internal/idutil"
 	"agentcli.local/ai/internal/provider"
-	"agentcli.local/ai/internal/provider/antigravity"
-	"agentcli.local/ai/internal/provider/claude"
 	"github.com/jedib0t/go-pretty/v6/table"
 	"github.com/spf13/cobra"
 )
@@ -43,35 +39,9 @@ Antigravity and Claude profiles can be switched using 'ai account switch <name>'
 		Short: "Capture current active session tokens and create/update desktop shortcut",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			selected := targetProvider
-			if selected == "" {
-				selected = o.provider
-			}
-			if selected != "" {
-				p, err := provider.Get(selected)
-				if err != nil {
-					return err
-				}
-				if p.Name() != "antigravity" && p.Name() != "claude" {
-					return fmt.Errorf("account mutation is only supported for antigravity and claude")
-				}
-				selected = p.Name()
-			} else {
-				selected = "antigravity"
-			}
-
-			profileName := args[0]
-			if selected == "claude" {
-				if err := claude.SaveProfile(profileName); err != nil {
-					return err
-				}
-			} else {
-				if err := antigravity.SaveProfile(profileName); err != nil {
-					return err
-				}
-			}
-			fmt.Fprintf(cmd.OutOrStdout(), "[+] Saved active %s session as profile %q and updated desktop shortcut.\n", selected, profileName)
-			return nil
+			return runProfileAction(cmd, o, targetProvider, args[0],
+				func(m provider.ProfileManager, name string) error { return m.SaveProfile(name) },
+				"Saved active %s session as profile %q and updated the desktop launcher.\n")
 		},
 	}
 
@@ -80,48 +50,9 @@ Antigravity and Claude profiles can be switched using 'ai account switch <name>'
 		Short: "Switch to a saved profile and restart the agent",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			selected := targetProvider
-			if selected == "" {
-				selected = o.provider
-			}
-			profileName := args[0]
-			if selected != "" {
-				p, err := provider.Get(selected)
-				if err != nil {
-					return err
-				}
-				if p.Name() != "antigravity" && p.Name() != "claude" {
-					return fmt.Errorf("account mutation is only supported for antigravity and claude")
-				}
-				selected = p.Name()
-			} else {
-				agExists := antigravityProfileExists(profileName)
-				clExists := claudeProfileExists(profileName)
-				switch {
-				case agExists && clExists:
-					return fmt.Errorf("profile %q exists for both antigravity and claude; specify -p <provider>", profileName)
-				case clExists:
-					selected = "claude"
-				case agExists:
-					selected = "antigravity"
-				default:
-					selected = "antigravity"
-				}
-			}
-
-			fmt.Fprintf(cmd.OutOrStdout(), "[*] Switching %s to profile %q...\n", selected, profileName)
-			if selected == "claude" {
-				if err := claude.SwitchProfile(profileName); err != nil {
-					return err
-				}
-				fmt.Fprintf(cmd.OutOrStdout(), "[+] Successfully switched to profile %q and launched Claude Desktop.\n", profileName)
-			} else {
-				if err := antigravity.SwitchProfile(profileName); err != nil {
-					return err
-				}
-				fmt.Fprintf(cmd.OutOrStdout(), "[+] Successfully switched to profile %q and launched Antigravity IDE.\n", profileName)
-			}
-			return nil
+			return runProfileAction(cmd, o, targetProvider, args[0],
+				func(m provider.ProfileManager, name string) error { return m.SwitchProfile(name) },
+				"Switched %s to profile %q and relaunched it.\n")
 		},
 	}
 
@@ -129,35 +60,9 @@ Antigravity and Claude profiles can be switched using 'ai account switch <name>'
 		Use:   "fresh",
 		Short: "Clear active session keys from DB and launch a clean, unauthenticated session",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			selected := targetProvider
-			if selected == "" {
-				selected = o.provider
-			}
-			if selected != "" {
-				p, err := provider.Get(selected)
-				if err != nil {
-					return err
-				}
-				if p.Name() != "antigravity" && p.Name() != "claude" {
-					return fmt.Errorf("account mutation is only supported for antigravity and claude")
-				}
-				selected = p.Name()
-			} else {
-				selected = "antigravity"
-			}
-
-			fmt.Fprintf(cmd.OutOrStdout(), "[*] Clearing %s session keys and launching fresh instance...\n", selected)
-			if selected == "claude" {
-				if err := claude.FreshSession(); err != nil {
-					return err
-				}
-			} else {
-				if err := antigravity.FreshSession(); err != nil {
-					return err
-				}
-			}
-			fmt.Fprintln(cmd.OutOrStdout(), "[+] Launched clean session.")
-			return nil
+			return runProfileAction(cmd, o, targetProvider, "",
+				func(m provider.ProfileManager, _ string) error { return m.FreshSession() },
+				"Cleared the %s session and launched a clean instance.%.0s\n")
 		},
 	}
 
@@ -166,18 +71,34 @@ Antigravity and Claude profiles can be switched using 'ai account switch <name>'
 	return cmd
 }
 
-func antigravityProfileExists(name string) bool {
-	p := filepath.Join(antigravity.ProfilesDir(), name+".json")
-	fi, err := os.Stat(p)
-	return err == nil && !fi.IsDir()
+// runProfileAction resolves which provider to act on and applies one profile
+// operation to it.
+//
+// Resolution lives in the provider package: this used to compare provider names
+// against a hardcoded pair, reconstruct each provider's on-disk profile layout
+// to find which one held a name, and silently default to Antigravity when the
+// answer was unclear — including when the user had asked for Codex.
+func runProfileAction(
+	cmd *cobra.Command,
+	o *options,
+	targetProvider, profileName string,
+	apply func(provider.ProfileManager, string) error,
+	successFormat string,
+) error {
+	name := targetProvider
+	if name == "" {
+		name = o.provider
+	}
+	p, manager, err := provider.ResolveProfileManager(name, profileName)
+	if err != nil {
+		return err
+	}
+	if err := apply(manager, profileName); err != nil {
+		return err
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), successFormat, p.DisplayName(), profileName)
+	return nil
 }
-
-func claudeProfileExists(name string) bool {
-	p := filepath.Join(claude.ProfilesDir(), name, "profile.json")
-	fi, err := os.Stat(p)
-	return err == nil && !fi.IsDir()
-}
-
 func listAccounts(o *options, cmd *cobra.Command, targetProvider string) error {
 	var provList []provider.Provider
 	filter := targetProvider

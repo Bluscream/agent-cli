@@ -72,61 +72,19 @@ func (p *ClaudeProvider) GetActiveAccount() (*provider.AccountInfo, error) {
 	return nil, fmt.Errorf("no active Claude account found")
 }
 
-// GetAccounts returns all accounts known to Claude, including the active session and saved profiles.
+// GetAccounts returns the active session and every saved profile.
 func (p *ClaudeProvider) GetAccounts() ([]provider.AccountInfo, error) {
-	var accounts []provider.AccountInfo
 	active, _ := p.GetActiveAccount()
-	activeEmail := ""
-	activeID := ""
-	if active != nil {
-		activeEmail = active.Email
-		activeID = active.ID
+	profiles, err := p.ListProfiles()
+	if err != nil {
+		return nil, err
 	}
-
-	profiles, _ := ListProfiles()
-
-	for _, prof := range profiles {
-		isActive := false
-		if active != nil {
-			if prof.AccountUUID != "" && activeID != "" && prof.AccountUUID == activeID {
-				isActive = true
-			} else if prof.Email != "" && activeEmail != "" && prof.Email == activeEmail {
-				isActive = true
-			}
+	// Claude records the account uuid in a profile, so identity is that first
+	// and the email only as a fallback.
+	return provider.MergeAccounts(p, active, profiles, func(prof provider.Profile, active provider.AccountInfo) bool {
+		if prof.AccountID != "" && active.ID != "" {
+			return prof.AccountID == active.ID
 		}
-		activeIn := "-"
-		if isActive {
-			activeIn = "Claude Desktop"
-		}
-		disp := prof.DisplayName
-		if disp == "" {
-			disp = prof.Name
-		}
-		accounts = append(accounts, provider.AccountInfo{
-			Provider:    p.Name(),
-			ID:          prof.Name,
-			DisplayName: disp,
-			Email:       prof.Email,
-			Plan:        prof.Plan,
-			IsActive:    isActive,
-			ActiveIn:    activeIn,
-			ConfigPath:  prof.Path,
-		})
-	}
-
-	// If the active account exists and didn't match any saved profile, prepend it
-	if active != nil {
-		foundActive := false
-		for _, acc := range accounts {
-			if acc.IsActive {
-				foundActive = true
-				break
-			}
-		}
-		if !foundActive {
-			accounts = append([]provider.AccountInfo{*active}, accounts...)
-		}
-	}
-
-	return accounts, nil
+		return prof.Email != "" && prof.Email == active.Email
+	}), nil
 }

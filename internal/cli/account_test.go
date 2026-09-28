@@ -10,6 +10,8 @@ import (
 	_ "agentcli.local/ai/internal/provider/codex"
 )
 
+// A provider without the ProfileManager capability is refused by name, rather
+// than by comparing against a hardcoded pair of provider names.
 func TestAccountMutationProviderValidation(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("DEBUG", "0")
@@ -23,7 +25,7 @@ func TestAccountMutationProviderValidation(t *testing.T) {
 		cmd := New(&bytes.Buffer{}, &bytes.Buffer{}, &bytes.Buffer{})
 		cmd.SetArgs(args)
 		err := cmd.Execute()
-		if err == nil || !strings.Contains(err.Error(), "only supported for antigravity and claude") {
+		if err == nil || !strings.Contains(err.Error(), "does not support account profiles") {
 			t.Errorf("expected error about unsupported provider for %s, got %v", subcmd, err)
 		}
 	}

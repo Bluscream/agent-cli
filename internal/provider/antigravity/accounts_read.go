@@ -65,52 +65,16 @@ func (p *AntigravityProvider) GetActiveAccount() (*provider.AccountInfo, error) 
 	}, nil
 }
 
-// GetAccounts returns all accounts known to Antigravity, including active session and saved profiles.
+// GetAccounts returns the active session and every saved profile.
 func (p *AntigravityProvider) GetAccounts() ([]provider.AccountInfo, error) {
-	var accounts []provider.AccountInfo
 	active, _ := p.GetActiveAccount()
-	activeEmail := ""
-	if active != nil {
-		activeEmail = active.Email
+	profiles, err := p.ListProfiles()
+	if err != nil {
+		return nil, err
 	}
-
-	profiles, _ := ListProfiles()
-
-	for _, prof := range profiles {
-		disp, email, plan := parseUserStatus(prof.UserStatus)
-		if disp == "" {
-			disp = prof.Name
-		}
-		isActive := (email != "" && activeEmail != "" && email == activeEmail)
-		activeIn := "-"
-		if isActive {
-			activeIn = "Antigravity IDE"
-		}
-		accounts = append(accounts, provider.AccountInfo{
-			Provider:    p.Name(),
-			ID:          prof.Name,
-			DisplayName: disp,
-			Email:       email,
-			Plan:        plan,
-			IsActive:    isActive,
-			ActiveIn:    activeIn,
-			ConfigPath:  prof.Path,
-		})
-	}
-
-	// If the active account exists and didn't match any saved profile, prepend it
-	if active != nil {
-		foundActive := false
-		for _, acc := range accounts {
-			if acc.IsActive {
-				foundActive = true
-				break
-			}
-		}
-		if !foundActive {
-			accounts = append([]provider.AccountInfo{*active}, accounts...)
-		}
-	}
-
-	return accounts, nil
+	// An Antigravity profile records no account id, so the email is the only
+	// identity available.
+	return provider.MergeAccounts(p, active, profiles, func(prof provider.Profile, active provider.AccountInfo) bool {
+		return prof.Email != "" && prof.Email == active.Email
+	}), nil
 }
