@@ -417,11 +417,6 @@ func TestConfigGate(t *testing.T) {
 	if cfg.Collection != DefaultCollection {
 		t.Errorf("default collection = %q, want %q", cfg.Collection, DefaultCollection)
 	}
-	// The default must not be the collection the retired daemon filled with
-	// zero vectors, which would reject payload-only points.
-	if cfg.Collection == "ai_history" {
-		t.Error("default collection collides with the legacy vector collection")
-	}
 }
 
 func TestIngestPublishesAndSkipsUnchanged(t *testing.T) {

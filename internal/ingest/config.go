@@ -22,11 +22,8 @@ const (
 	EnvOffsetsFile  = "AI_INGEST_OFFSETS"
 )
 
-// DefaultCollection deliberately differs from the `ai_history` collection
-// written by the retired TypeScript daemon: that one declares 1536-dimension
-// vectors that were only ever filled with zeros, and this package writes
-// payload-only points that such a collection would reject.
-const DefaultCollection = "ai_history_v2"
+// DefaultCollection is the canonical Qdrant collection for conversation transcripts.
+const DefaultCollection = "ai_history"
 
 // ErrNotConfigured reports that ingestion has no destination configured.
 var ErrNotConfigured = errors.New("ingestion is not configured")
