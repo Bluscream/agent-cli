@@ -2,7 +2,46 @@
 # Git pre-push hook to prevent pushing secrets or code violating size policy
 set -euo pipefail
 
-# Check for gitleaks or run via go
+# 1. Check against local private redaction wordlist if present
+wordlist="${HOME}/.config/agent-cli/redact.words"
+if [[ -f "$wordlist" ]]; then
+  # Read ref information from standard input if provided by git
+  commits=""
+  if [[ ! -t 0 ]]; then
+    while read -r local_ref local_oid remote_ref remote_oid; do
+      if [[ "$local_oid" != "0000000000000000000000000000000000000000" ]]; then
+        if [[ "$remote_oid" == "0000000000000000000000000000000000000000" ]]; then
+          commits="${commits} $(git rev-list "$local_oid" --not --remotes 2>/dev/null || true)"
+        else
+          commits="${commits} $(git rev-list "${remote_oid}..${local_oid}" 2>/dev/null || true)"
+        fi
+      fi
+    done
+  fi
+
+  # Fallback to unpushed commits on current branch if nothing on stdin
+  if [[ -z "$commits" ]]; then
+    commits=$(git rev-list @{u}..HEAD 2>/dev/null || true)
+  fi
+
+  if [[ -n "$commits" ]]; then
+    for c in $commits; do
+      added_lines=$(git show -U0 "$c" | grep '^[+]' | grep -v '^[+][+][+]' || true)
+      [[ -z "$added_lines" ]] && continue
+      while IFS= read -r line || [[ -n "$line" ]]; do
+        line=$(echo "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+        [[ -z "$line" || "$line" =~ ^# ]] && continue
+        if echo "$added_lines" | grep -qiE "\b${line}\b"; then
+          printf 'ERROR: Commit %s contains private sensitive term: "%s"\n' "$c" "$line" >&2
+          printf 'Push aborted to prevent leaking sensitive information.\n' >&2
+          exit 1
+        fi
+      done < "$wordlist"
+    done
+  fi
+fi
+
+# 2. Check for gitleaks or run via go
 if command -v gitleaks >/dev/null 2>&1; then
   gitleaks detect -v
 elif command -v go >/dev/null 2>&1; then

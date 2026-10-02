@@ -2,7 +2,24 @@
 # Git pre-commit hook to prevent committing secrets or credentials
 set -euo pipefail
 
-# Check for gitleaks or run via go
+# 1. Check against local private redaction wordlist if present
+wordlist="${HOME}/.config/agent-cli/redact.words"
+if [[ -f "$wordlist" ]]; then
+  added_lines=$(git diff --cached -U0 | grep '^[+]' | grep -v '^[+][+][+]' || true)
+  if [[ -n "$added_lines" ]]; then
+    while IFS= read -r line || [[ -n "$line" ]]; do
+      line=$(echo "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
+      [[ -z "$line" || "$line" =~ ^# ]] && continue
+      if echo "$added_lines" | grep -qiE "\b${line}\b"; then
+        printf 'ERROR: Staged changes contain private sensitive term: "%s"\n' "$line" >&2
+        printf 'Commit aborted to prevent leaking sensitive information.\n' >&2
+        exit 1
+      fi
+    done < "$wordlist"
+  fi
+fi
+
+# 2. Check for gitleaks or run via go
 if command -v gitleaks >/dev/null 2>&1; then
   gitleaks protect --staged -v
 elif command -v go >/dev/null 2>&1; then
