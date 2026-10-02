@@ -64,18 +64,35 @@ func pointID(providerName, sessionID string, stepIndex, ordinal int) string {
 }
 
 // turnsToPoints converts a conversation's turns into points, skipping turns
-// that carry no text at all.
-func turnsToPoints(cfg *Config, summary provider.ConversationSummary, turns []provider.TurnInfo) []Point {
+// that carry no text at all. If a redactor is provided, sensitive patterns,
+// credentials, and real names are automatically scrubbed from the payload.
+func turnsToPoints(cfg *Config, summary provider.ConversationSummary, turns []provider.TurnInfo, redactor ...*Redactor) []Point {
 	points := make([]Point, 0, len(turns))
 	// Counted only over turns that become points, so an ordinal always lines up
 	// with what is stored rather than with turns that were skipped.
 	perStep := make(map[int]int)
+
+	var r *Redactor
+	if len(redactor) > 0 {
+		r = redactor[0]
+	}
+
+	title := summary.Title
+	projectPath := provider.ParseWorkspace(summary.WorkspaceDir).Path()
+	if r != nil {
+		title = r.Redact(title)
+		projectPath = r.Redact(projectPath)
+	}
 
 	for _, turn := range turns {
 		content := strings.TrimSpace(turn.Content)
 		thinking := strings.TrimSpace(turn.Thinking)
 		if content == "" && thinking == "" {
 			continue
+		}
+		if r != nil {
+			content = r.Redact(content)
+			thinking = r.Redact(thinking)
 		}
 		ordinal := perStep[turn.StepIndex]
 		perStep[turn.StepIndex]++
@@ -91,8 +108,8 @@ func turnsToPoints(cfg *Config, summary provider.ConversationSummary, turns []pr
 				SessionID:   summary.ID,
 				Provider:    summary.Provider,
 				Hostname:    cfg.Hostname,
-				ProjectPath: provider.ParseWorkspace(summary.WorkspaceDir).Path(),
-				Title:       summary.Title,
+				ProjectPath: projectPath,
+				Title:       title,
 				Role:        role,
 				Content:     content,
 				Thinking:    thinking,

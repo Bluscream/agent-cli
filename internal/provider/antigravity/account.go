@@ -260,13 +260,27 @@ func StopAntigravity() bool {
 }
 
 func LaunchAntigravity() error {
+	return proc.Launch("antigravity-ide", ideCandidates(), []string{"antigravity-ide"})
+}
+
+// ideCandidates lists where the IDE is installed, most specific first. Named
+// once so Status and Launch cannot disagree about which binary is the IDE.
+func ideCandidates() []string {
 	home, _ := os.UserHomeDir()
-	return proc.Launch("antigravity-ide",
-		[]string{
-			filepath.Join(home, ".local/bin/antigravity-ide"),
-			"/var/home/linuxbrew/.linuxbrew/bin/antigravity-ide",
-			"/home/linuxbrew/.linuxbrew/bin/antigravity-ide",
-		},
-		[]string{"antigravity-ide"},
-	)
+	return []string{
+		filepath.Join(home, ".local/bin/antigravity-ide"),
+		"/var/home/linuxbrew/.linuxbrew/bin/antigravity-ide",
+		"/home/linuxbrew/.linuxbrew/bin/antigravity-ide",
+		"/usr/local/bin/antigravity-ide",
+		"/usr/bin/antigravity-ide",
+	}
+}
+
+// ideBinary resolves the IDE's path, or the first candidate when none exists so
+// a status report still names where it was looked for.
+func ideBinary() string {
+	if found := proc.Find(ideCandidates(), []string{"antigravity-ide"}); found != "" {
+		return found
+	}
+	return ideCandidates()[0]
 }

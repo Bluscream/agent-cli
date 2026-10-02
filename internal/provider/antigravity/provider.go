@@ -30,7 +30,7 @@ func (p *AntigravityProvider) DisplayName() string {
 
 func (p *AntigravityProvider) Status() (provider.ProviderInfo, error) {
 	home, _ := os.UserHomeDir()
-	binPath := "/var/home/linuxbrew/.linuxbrew/bin/antigravity-ide"
+	binPath := ideBinary()
 	configPath := filepath.Join(home, ".config/Antigravity IDE/User/globalStorage/state.vscdb")
 	dataPath := filepath.Join(home, ".gemini/antigravity-ide")
 

@@ -15,6 +15,7 @@ type Options struct {
 	Force    bool   // republish conversations even when unchanged
 	DryRun   bool   // report what would be published without writing
 	Since    time.Time
+	NoRedact bool // disable automatic redaction of sensitive data
 	// OnProgress, when set, is called once per conversation as the pass runs.
 	OnProgress func(ProgressEvent)
 }
@@ -109,11 +110,16 @@ func Run(ctx context.Context, cfg *Config, opts Options) (*Result, error) {
 	store := loadOffsets(cfg.OffsetsFile)
 	started := time.Now()
 
+	var redactor *Redactor
+	if !opts.NoRedact {
+		redactor = NewRedactor()
+	}
+
 	for _, item := range work {
 		if err := ctx.Err(); err != nil {
 			return result, err
 		}
-		detail := ingestOne(ctx, client, cfg, store, opts, item.provider, item.summary)
+		detail := ingestOne(ctx, client, cfg, store, opts, redactor, item.provider, item.summary)
 		applyResult(result, detail)
 
 		if opts.OnProgress != nil {
@@ -188,6 +194,7 @@ func ingestOne(
 	cfg *Config,
 	store *offsetStore,
 	opts Options,
+	redactor *Redactor,
 	p provider.Provider,
 	summary provider.ConversationSummary,
 ) ConversationResult {
@@ -209,7 +216,7 @@ func ingestOne(
 		return out
 	}
 
-	points := turnsToPoints(cfg, summary, detail.Turns)
+	points := turnsToPoints(cfg, summary, detail.Turns, redactor)
 	out.Points = len(points)
 	if len(points) == 0 {
 		// Nothing to publish, but the state was still examined at this size.

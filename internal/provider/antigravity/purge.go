@@ -35,6 +35,10 @@ func resolvePaths() (paths, error) {
 	}, nil
 }
 
+// isRunning reports whether a process matching pattern is currently active.
+// Swapped out in tests so running tests inside the IDE does not fail the purge check.
+var isRunning = proc.Running
+
 // PurgeConversation implements provider.ConversationPurger.
 //
 // An Antigravity conversation is a brain directory of artifacts and
@@ -54,7 +58,7 @@ func (p *AntigravityProvider) PurgeConversation(id string, opts provider.PurgeOp
 
 	// The IDE holds state.vscdb open and rewrites the index from memory when it
 	// exits, which would restore the entry that was just deleted.
-	if !opts.DryRun && proc.Running(antigravityProcessPattern) {
+	if !opts.DryRun && isRunning(antigravityProcessPattern) {
 		return nil, fmt.Errorf("antigravity-ide is still running; stop it before purging conversations, or it will rewrite the index")
 	}
 
@@ -80,7 +84,7 @@ func (p *AntigravityProvider) PurgeAllConversations(opts provider.PurgeOptions) 
 	if err != nil {
 		return nil, err
 	}
-	if !opts.DryRun && proc.Running(antigravityProcessPattern) {
+	if !opts.DryRun && isRunning(antigravityProcessPattern) {
 		return nil, fmt.Errorf("antigravity-ide is still running; stop it before purging conversations, or it will rewrite the index")
 	}
 

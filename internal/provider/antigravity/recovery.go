@@ -191,7 +191,11 @@ func extractConvoInfo(cid, convDir, brainDir string) ConvoMeta {
 	meta := ConvoMeta{
 		ID:           cid,
 		TrajectoryID: cid,
-		WorkspaceURI: "file:///run/media/system/Data/Projects",
+		// Deliberately empty: this is recovered data, and the workspace is
+		// read from the transcript below when the transcript records one.
+		// It used to default to one machine's project directory, which wrote
+		// a path that had nothing to do with the conversation into the index.
+		WorkspaceURI: "",
 		StepCount:    1,
 		CreatedTS:    time.Now().Unix(),
 		ModifiedTS:   time.Now().Unix(),

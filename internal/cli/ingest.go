@@ -28,16 +28,30 @@ Optional: %s, %s, %s.`,
 		ingest.EnvQdrantAPIKey, ingest.EnvHostname, ingest.EnvOffsetsFile)
 }
 
+type ingestFlags struct {
+	targetProvider string
+	sinceStr       string
+	force          bool
+	dryRun         bool
+	watch          bool
+	debounceStr    string
+	cleanup        bool
+	noRedact       bool
+}
+
+func registerIngestFlags(cmd *cobra.Command, f *ingestFlags) {
+	cmd.Flags().StringVarP(&f.targetProvider, "provider", "p", "", "Only ingest one provider (antigravity, claude, codex)")
+	cmd.Flags().StringVar(&f.sinceStr, "since", "", "Only ingest conversations updated since duration (e.g. 2w, 1d, 3h)")
+	cmd.Flags().BoolVar(&f.force, "force", false, "Republish conversations even when unchanged since the last pass")
+	cmd.Flags().BoolVar(&f.dryRun, "dry-run", false, "Report what would be published without writing anything")
+	cmd.Flags().BoolVar(&f.watch, "watch", false, "Keep running, publishing transcripts as they change")
+	cmd.Flags().BoolVar(&f.cleanup, "cleanup", false, "Delete stored sessions that no longer exist on this machine instead of publishing")
+	cmd.Flags().StringVar(&f.debounceStr, "debounce", "5s", "How long to wait for writes to settle before ingesting in --watch")
+	cmd.Flags().BoolVar(&f.noRedact, "no-redact", false, "Disable automatic redaction of sensitive credentials, phone numbers, and names")
+}
+
 func ingestCommand(o *options) *cobra.Command {
-	var (
-		targetProvider string
-		sinceStr       string
-		force          bool
-		dryRun         bool
-		watch          bool
-		debounceStr    string
-		cleanup        bool
-	)
+	var flags ingestFlags
 
 	cmd := &cobra.Command{
 		Use:   "ingest",
@@ -49,10 +63,12 @@ set and exits successfully. Conversations unchanged since the last pass are
 skipped, so repeated runs are cheap.
 
 Points are payload-only: no embedding model is involved and no vectors are
-written. Search the result with Qdrant's payload filters.
+written. Sensitive data (real names, credentials, phone numbers, and environment
+secrets) is automatically redacted before ingestion unless --no-redact is given.
 
 Examples:
-  ai ingest                      # publish everything that changed
+  ai ingest                      # publish everything that changed (with auto-redaction)
+  ai ingest --no-redact          # publish raw transcripts without redacting secrets/names
   ai ingest --dry-run            # report what would be published
   ai ingest --provider claude    # one provider only
   ai ingest --since 2w           # only recently updated conversations
@@ -64,68 +80,70 @@ Examples:
   ai ingest verify               # check every conversation is stored and readable`,
 			ingest.EnvQdrantURL),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := ingest.LoadConfig()
-			if errors.Is(err, ingest.ErrNotConfigured) {
-				return reportNotConfigured(o, cmd.OutOrStdout())
-			}
-			if err != nil {
-				return err
-			}
-
-			opts := ingest.Options{Provider: targetProvider, Force: force, DryRun: dryRun}
-			if opts.Provider == "" {
-				opts.Provider = o.provider
-			}
-
-			if cleanup {
-				if watch {
-					return errors.New("--cleanup and --watch cannot be combined")
-				}
-				return runIngestCleanup(cmd, o, cfg, opts.Provider, dryRun)
-			}
-			if sinceStr != "" {
-				since, err := ParseSinceDuration(sinceStr)
-				if err != nil {
-					return fmt.Errorf("invalid --since value: %w", err)
-				}
-				opts.Since = since
-			}
-			var progress *ingestProgress
-			if !o.isJSON() {
-				progress = newIngestProgress(cmd.OutOrStdout(), dryRun)
-				opts.OnProgress = progress.Handle
-			}
-
-			if watch {
-				debounce, err := time.ParseDuration(debounceStr)
-				if err != nil {
-					return fmt.Errorf("invalid --debounce value: %w", err)
-				}
-				return runIngestWatch(cmd, o, cfg, opts, debounce)
-			}
-
-			result, err := ingest.Run(cmd.Context(), cfg, opts)
-			if progress != nil {
-				progress.Finish()
-			}
-			if err != nil {
-				return err
-			}
-			return renderIngestResult(o, cmd.OutOrStdout(), result)
+			return runIngest(cmd, o, flags)
 		},
 	}
 
-	cmd.Flags().StringVarP(&targetProvider, "provider", "p", "", "Only ingest one provider (antigravity, claude, codex)")
-	cmd.Flags().StringVar(&sinceStr, "since", "", "Only ingest conversations updated since duration (e.g. 2w, 1d, 3h)")
-	cmd.Flags().BoolVar(&force, "force", false, "Republish conversations even when unchanged since the last pass")
-	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "Report what would be published without writing anything")
-	cmd.Flags().BoolVar(&watch, "watch", false, "Keep running, publishing transcripts as they change")
-	cmd.Flags().BoolVar(&cleanup, "cleanup", false, "Delete stored sessions that no longer exist on this machine instead of publishing")
-	cmd.Flags().StringVar(&debounceStr, "debounce", "5s", "How long to wait for writes to settle before ingesting in --watch")
-
+	registerIngestFlags(cmd, &flags)
 	cmd.AddCommand(ingestStatusCommand(o))
 	cmd.AddCommand(ingestVerifyCommand(o))
 	return cmd
+}
+
+func runIngest(cmd *cobra.Command, o *options, flags ingestFlags) error {
+	cfg, err := ingest.LoadConfig()
+	if errors.Is(err, ingest.ErrNotConfigured) {
+		return reportNotConfigured(o, cmd.OutOrStdout())
+	}
+	if err != nil {
+		return err
+	}
+
+	opts := ingest.Options{
+		Provider: flags.targetProvider,
+		Force:    flags.force,
+		DryRun:   flags.dryRun,
+		NoRedact: flags.noRedact,
+	}
+	if opts.Provider == "" {
+		opts.Provider = o.provider
+	}
+
+	if flags.cleanup {
+		if flags.watch {
+			return errors.New("--cleanup and --watch cannot be combined")
+		}
+		return runIngestCleanup(cmd, o, cfg, opts.Provider, flags.dryRun)
+	}
+	if flags.sinceStr != "" {
+		since, err := ParseSinceDuration(flags.sinceStr)
+		if err != nil {
+			return fmt.Errorf("invalid --since value: %w", err)
+		}
+		opts.Since = since
+	}
+	var progress *ingestProgress
+	if !o.isJSON() {
+		progress = newIngestProgress(cmd.OutOrStdout(), flags.dryRun)
+		opts.OnProgress = progress.Handle
+	}
+
+	if flags.watch {
+		debounce, err := time.ParseDuration(flags.debounceStr)
+		if err != nil {
+			return fmt.Errorf("invalid --debounce value: %w", err)
+		}
+		return runIngestWatch(cmd, o, cfg, opts, debounce)
+	}
+
+	result, err := ingest.Run(cmd.Context(), cfg, opts)
+	if progress != nil {
+		progress.Finish()
+	}
+	if err != nil {
+		return err
+	}
+	return renderIngestResult(o, cmd.OutOrStdout(), result)
 }
 
 // runIngestWatch ingests once and then on every transcript change until the

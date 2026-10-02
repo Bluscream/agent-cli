@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 )
 
 type PatchStatus struct {
@@ -146,14 +147,35 @@ func CheckPatchStatus() PatchStatus {
 	return status
 }
 
+// EnvPatchScript overrides where the patcher is looked for.
+const EnvPatchScript = "CLAUDE_PATCH_SCRIPT"
+
 // patchScript returns the patcher to invoke. The local copy is a thin launcher
 // that fetches the current script from the plugin-system repo.
+//
+// The default was an absolute path under one machine's script directory. It is
+// now resolved the way any other user script is, with that machine's layout no
+// longer baked in; set EnvPatchScript to point elsewhere.
 func patchScript() string {
-	if env := os.Getenv("CLAUDE_PATCH_SCRIPT"); env != "" {
+	if env := strings.TrimSpace(os.Getenv(EnvPatchScript)); env != "" {
 		return env
 	}
-	return "/run/media/system/Data/Scripts/patch-claude-desktop.sh"
+	home, _ := os.UserHomeDir()
+	candidates := []string{
+		filepath.Join(home, ".local/share/agent-cli", patchScriptName),
+		filepath.Join(home, ".local/bin", patchScriptName),
+		filepath.Join(home, "bin", patchScriptName),
+	}
+	for _, c := range candidates {
+		if fi, err := os.Stat(c); err == nil && !fi.IsDir() {
+			return c
+		}
+	}
+	return candidates[0]
 }
+
+// patchScriptName is the file the patcher is installed as.
+const patchScriptName = "patch-claude-desktop.sh"
 
 func RunPatcher(appImagePath string) (string, error) {
 	script := patchScript()

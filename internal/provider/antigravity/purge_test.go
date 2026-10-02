@@ -17,6 +17,9 @@ import (
 // a transcript and a per-conversation database. All under t.TempDir.
 func seedAntigravity(t *testing.T, home string, ids ...string) (dbPath string) {
 	t.Helper()
+	prev := isRunning
+	isRunning = func(string) bool { return false }
+	t.Cleanup(func() { isRunning = prev })
 	if _, err := exec.LookPath(sqlite.Binary()); err != nil {
 		t.Skipf("sqlite3 not available: %v", err)
 	}
